@@ -88,6 +88,49 @@ function bucketDate(bucket: string, granularity: Granularity): string {
 }
 
 /**
+ * Pick the best available series for the requested window.
+ *
+ * The official eToro gain series is authoritative but its historical depth
+ * varies; the derived series covers everything stored in Supabase (which can
+ * include imported statement history going back years). Prefer official only
+ * when it actually covers the requested window as well as derived does.
+ */
+export async function getBestPerformance(
+  username: string | null,
+  env: TradingEnv,
+  granularity: Granularity,
+  minDate?: string,
+  maxDate?: string,
+): Promise<PerformanceSeries> {
+  const derivedPromise = getDerivedPerformance(env, granularity, minDate, maxDate).catch(
+    () => null,
+  );
+
+  let official: PerformanceSeries | null = null;
+  if (granularity !== 'weekly' && username) {
+    try {
+      official = await getPerformance(username, granularity, minDate, maxDate);
+    } catch (err) {
+      console.warn('Official gain series unavailable:', (err as Error).message);
+    }
+  }
+
+  const derived = await derivedPromise;
+  if (!official?.points.length) return derived ?? official ?? emptySeries(granularity);
+  if (!derived?.points.length) return official;
+
+  // 31-day slack: monthly buckets can shift the first label by up to a month.
+  const officialStart = new Date(`${official.points[0].date.slice(0, 10)}T00:00:00Z`).getTime();
+  const derivedStart = new Date(`${derived.points[0].date.slice(0, 10)}T00:00:00Z`).getTime();
+  const officialCoversWindow = officialStart <= derivedStart + 31 * 86_400_000;
+  return officialCoversWindow ? official : derived;
+}
+
+function emptySeries(granularity: Granularity): PerformanceSeries {
+  return { granularity, points: [], totalGain: null, source: 'derived' };
+}
+
+/**
  * Deposit-adjusted performance from stored/live balance history.
  * Supports daily | weekly | monthly | yearly. Weekly uses ISO weeks (Mon–Sun),
  * labeled by the week-ending Sunday.

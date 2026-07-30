@@ -4,8 +4,11 @@ import { AllocationChart } from './components/AllocationChart';
 import { EquityChart } from './components/EquityChart';
 import { GainHeatmap } from './components/GainHeatmap';
 import { HoldingsTable } from './components/HoldingsTable';
+import { IncomePanel } from './components/IncomePanel';
+import { InstrumentPerformanceTable } from './components/InstrumentPerformanceTable';
 import { LoginForm } from './components/LoginForm';
 import { PerformanceChart } from './components/PerformanceChart';
+import { StatsPanel } from './components/StatsPanel';
 import { SummaryCards } from './components/SummaryCards';
 
 function formatSyncedAt(iso: string | null | undefined): string {
@@ -201,10 +204,13 @@ export default function App() {
       )}
 
       <SummaryCards />
+      <StatsPanel />
       <PerformanceChart />
       <GainHeatmap />
       <EquityChart />
       <AllocationChart />
+      <InstrumentPerformanceTable />
+      <IncomePanel />
       <HoldingsTable />
     </div>
   );

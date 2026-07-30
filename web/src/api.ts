@@ -131,6 +131,80 @@ export interface Trade {
   instrumentName: string | null;
 }
 
+export interface DrawdownInfo {
+  depth: number;
+  peakDate: string | null;
+  troughDate: string | null;
+  recoveryDate: string | null;
+  lengthDays: number | null;
+}
+
+export interface AccountStats {
+  since: string | null;
+  days: number;
+  totalGain: number | null;
+  cagr: number | null;
+  volatilityAnnualized: number | null;
+  sharpe: number | null;
+  maxDrawdown: DrawdownInfo | null;
+  currentDrawdown: number | null;
+  bestMonth: { date: string; gain: number } | null;
+  worstMonth: { date: string; gain: number } | null;
+  bestYear: { date: string; gain: number } | null;
+  worstYear: { date: string; gain: number } | null;
+  totalDeposits: number;
+  totalWithdrawals: number;
+  netDeposits: number;
+  currentEquity: number | null;
+  allTimeProfit: number | null;
+  positiveDaysPct: number | null;
+}
+
+export interface InstrumentPerformance {
+  key: string;
+  symbol: string | null;
+  name: string | null;
+  instrumentId: number;
+  trades: number;
+  realizedProfit: number;
+  totalInvested: number;
+  totalFees: number;
+  winRate: number;
+  avgHoldingDays: number;
+  returnOnInvested: number;
+  firstClose: string;
+  lastClose: string;
+}
+
+export interface InstrumentPerformanceReport {
+  since: string | null;
+  totalTrades: number;
+  totalRealizedProfit: number;
+  items: InstrumentPerformance[];
+}
+
+export interface IncomeYear {
+  year: string;
+  dividendsNet: number;
+  withholdingTax: number;
+  dividendCount: number;
+  fees: number;
+  realizedProfit: number;
+}
+
+export interface IncomeReport {
+  available: boolean;
+  reason?: string;
+  years: IncomeYear[];
+  totals: {
+    dividendsNet: number;
+    withholdingTax: number;
+    fees: number;
+    realizedProfit: number;
+  };
+  topDividendPayers: { name: string; total: number }[];
+}
+
 export interface CredentialsInput {
   etoroApiKey: string;
   etoroUserKey: string;
@@ -209,6 +283,9 @@ export const api = {
   allocationHistory: () => get<AllocationHistory>('/api/allocation-history'),
   portfolio: () => get<PortfolioSummary>('/api/portfolio'),
   trades: (from?: string) => get<{ items: Trade[] }>(`/api/trades${from ? `?from=${from}` : ''}`),
+  stats: () => get<AccountStats>('/api/stats'),
+  instrumentPerformance: () => get<InstrumentPerformanceReport>('/api/instrument-performance'),
+  income: () => get<IncomeReport>('/api/income'),
 };
 
 export const fmtMoney = (v: number, currency = 'USD'): string =>

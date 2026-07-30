@@ -10,3 +10,6 @@ server/data/
 *.local
 .DS_Store
 .cursor/
+build/
+exporteddata/
+server/data/instrument-cache.json

@@ -2,7 +2,7 @@ import { cached, TTL } from '../cache.js';
 import { getBootstrap } from '../bootstrap.js';
 import { etoroFetch } from '../etoroClient.js';
 import { isSchemaMissing, markSchemaMissing } from '../schemaState.js';
-import { getSupabase, isSupabaseConfigured } from '../supabase.js';
+import { getSupabase, isSupabaseConfigured, selectAllRows } from '../supabase.js';
 import type { TradeHistoryItem, TradeHistoryResponse, TradingEnv } from '../etoroTypes.js';
 import { resolveInstruments } from './instruments.js';
 
@@ -20,22 +20,26 @@ async function getTradesFromSupabase(minDate: string): Promise<EnrichedTrade[] |
   if (boot.gcid === null) return null;
 
   const sb = getSupabase();
-  const { data, error } = await sb
-    .from('closed_trades')
-    .select('*')
-    .eq('gcid', boot.gcid)
-    .gte('close_timestamp', `${minDate}T00:00:00Z`)
-    .order('close_timestamp', { ascending: false });
+  const gcid = boot.gcid;
+  // Paginate past PostgREST's 1000-row cap (full history can be ~90k trades).
+  const { rows, error } = await selectAllRows<import('../supabase.js').ClosedTradeRow>(
+    (from, to) =>
+      sb
+        .from('closed_trades')
+        .select('*')
+        .eq('gcid', gcid)
+        .gte('close_timestamp', `${minDate}T00:00:00Z`)
+        .order('close_timestamp', { ascending: false })
+        .range(from, to),
+  );
 
   if (error) {
-    markSchemaMissing(error.message);
-    console.warn('Supabase trades read failed, falling back to eToro:', error.message);
+    markSchemaMissing(error);
+    console.warn('Supabase trades read failed, falling back to eToro:', error);
     return null;
   }
-  if (!data?.length) return null;
-
-  const rows = data as import('../supabase.js').ClosedTradeRow[];
-  const items: TradeHistoryItem[] = rows.map((t) => ({
+  if (!rows.length) return null;
+  const items = rows.map((t) => ({
     positionId: t.position_id,
     instrumentId: t.instrument_id,
     isBuy: t.is_buy,
@@ -49,12 +53,16 @@ async function getTradesFromSupabase(minDate: string): Promise<EnrichedTrade[] |
     netProfit: t.net_profit,
     openTimestamp: t.open_timestamp,
     closeTimestamp: t.close_timestamp,
+    storedSymbol: t.symbol ?? null,
   }));
 
-  const meta = await resolveInstruments(items.map((t) => t.instrumentId));
-  return items.map((t) => ({
+  const meta = await resolveInstruments(
+    [...new Set(items.filter((t) => t.instrumentId > 0).map((t) => t.instrumentId))],
+  );
+  return items.map(({ storedSymbol, ...t }) => ({
     ...t,
-    symbol: meta.get(t.instrumentId)?.symbol ?? null,
+    // Prefer live metadata; fall back to the ticker captured at import time.
+    symbol: meta.get(t.instrumentId)?.symbol ?? storedSymbol,
     instrumentName: meta.get(t.instrumentId)?.name ?? null,
   }));
 }
@@ -97,6 +105,23 @@ export async function getTrades(env: TradingEnv, minDate: string): Promise<Enric
   if (fromDb) return fromDb;
 
   return cached(`trades:${env}:${minDate}`, TTL.HISTORY, () => getTradesFromEtoro(env, minDate));
+}
+
+/** Earliest stored closed-trade date (YYYY-MM-DD), or null when none stored. */
+export async function earliestStoredTradeDate(): Promise<string | null> {
+  if (!isSupabaseConfigured() || isSchemaMissing()) return null;
+  const boot = await getBootstrap();
+  if (boot.gcid === null) return null;
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('closed_trades')
+    .select('close_timestamp')
+    .eq('gcid', boot.gcid)
+    .order('close_timestamp', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return (data as { close_timestamp: string }).close_timestamp.slice(0, 10);
 }
 
 /** Sum of realized net profit per close date (YYYY-MM-DD). */

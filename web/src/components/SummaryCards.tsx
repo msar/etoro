@@ -36,7 +36,7 @@ export function SummaryCards() {
       <div className="card">
         <div className="label">Cumulative investment</div>
         <div className="value">{invested !== null ? fmtMoney(invested, currency) : '—'}</div>
-        <div className="hint">Net deposits basis (12-month window)</div>
+        <div className="hint">Net deposits basis (full stored history)</div>
       </div>
       <div className="card">
         <div className="label">Earned vs deposits</div>

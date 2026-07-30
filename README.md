@@ -26,7 +26,28 @@ Keys are validated, then saved only on this computer at `server/data/credentials
 
 ### One-time Supabase schema
 
-In the [Supabase SQL Editor](https://supabase.com/dashboard), run the contents of [`server/supabase/migrations/001_init.sql`](server/supabase/migrations/001_init.sql). Without this, the app still works from live eToro data but cannot grow history beyond eToro’s ~12-month API window.
+In the [Supabase SQL Editor](https://supabase.com/dashboard), run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (001, 002, …) — or print them with `npm run print-migration --workspace server`. Without this, the app still works from live eToro data but cannot grow history beyond eToro’s ~12-month API window.
+
+### Backfill older history (Account Statement export)
+
+eToro’s API only keeps ~12 months of balance history. To go further back:
+
+1. In eToro, download your **Account Statement** (XLS) for the full period you care about.
+2. Export/save the sheets as CSV into `exporteddata/` (gitignored), e.g.:
+   - `actividaddelacuenta.csv` — Account Activity
+   - `posicionescerradas.csv` — Closed Positions
+   - `dividendos.csv` — Dividends (optional, powers the dividends panel)
+3. Run:
+
+```bash
+npm run import:etoro-history
+# optional: resolve ticker → instrumentId (slow, cached)
+npm run import:etoro-history -- --resolve-instruments
+# preview only
+npm run import:etoro-history -- --dry-run
+```
+
+Balances older than ~360 days come from **Realized Equity** + cash in Account Activity (not mark-to-market). The last year stays owned by the live API sync.
 
 ## What you get
 

@@ -34,6 +34,20 @@ export interface ClosedTradeRow {
   net_profit: number;
   open_timestamp: string;
   close_timestamp: string;
+  /** Ticker from statement imports; null for API-synced rows (migration 002). */
+  symbol?: string | null;
+}
+
+export interface DividendRow {
+  gcid: number;
+  position_id: number;
+  pay_date: string;
+  instrument_name: string | null;
+  isin: string | null;
+  net_dividend_usd: number;
+  withholding_tax_usd: number;
+  withholding_tax_rate: number;
+  asset_type: string | null;
 }
 
 export interface HoldingSnapshotRow {
@@ -80,6 +94,30 @@ export function getSupabase(): SupabaseClient {
     clientKey = key;
   }
   return client;
+}
+
+const PAGE_SIZE = 1000;
+
+/**
+ * Fetch ALL rows for a query, working around PostgREST's 1000-row cap.
+ * `buildQuery` must apply the same filters/ordering every call; pagination
+ * is layered on top via `.range()`.
+ */
+export async function selectAllRows<T>(
+  buildQuery: (from: number, to: number) => PromiseLike<{
+    data: T[] | null;
+    error: { message: string } | null;
+  }>,
+): Promise<{ rows: T[]; error: string | null }> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await buildQuery(from, from + PAGE_SIZE - 1);
+    if (error) return { rows, error: error.message };
+    if (!data?.length) break;
+    rows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+  }
+  return { rows, error: null };
 }
 
 /** Lightweight connectivity check with candidate keys (before save). */

@@ -15,7 +15,7 @@ import {
 import { api, fmtPct, type Granularity, type PerformanceSeries } from '../api';
 import { Segmented } from './Segmented';
 
-type Range = '1M' | '6M' | 'YTD' | '1Y' | 'ALL';
+type Range = '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'ALL';
 type Mode = 'cumulative' | 'periodic';
 
 const RANGES: { value: Range; label: string }[] = [
@@ -23,7 +23,8 @@ const RANGES: { value: Range; label: string }[] = [
   { value: '6M', label: '6M' },
   { value: 'YTD', label: 'YTD' },
   { value: '1Y', label: '1Y' },
-  { value: 'ALL', label: 'All' },
+  { value: '5Y', label: '5Y' },
+  { value: 'ALL', label: 'Max' },
 ];
 
 function rangeStart(range: Range): string | null {
@@ -39,6 +40,9 @@ function rangeStart(range: Range): string | null {
       return `${now.getFullYear()}-01-01`;
     case '1Y':
       now.setFullYear(now.getFullYear() - 1);
+      break;
+    case '5Y':
+      now.setFullYear(now.getFullYear() - 5);
       break;
     case 'ALL':
       return null;
@@ -114,8 +118,10 @@ export function PerformanceChart() {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    // Pass the window start so the server can pick the deepest source that
+    // covers it (official eToro series vs. stored-history derivation).
     api
-      .performance(granularity)
+      .performance(granularity, rangeStart(range) ?? undefined)
       .then((s) => {
         if (!cancelled) setSeries(s);
       })
@@ -128,7 +134,7 @@ export function PerformanceChart() {
     return () => {
       cancelled = true;
     };
-  }, [granularity]);
+  }, [granularity, range]);
 
   const data: ChartPoint[] = useMemo(() => {
     if (!series) return [];
@@ -265,8 +271,8 @@ export function PerformanceChart() {
       )}
       {derived && !loading && !error && (
         <div className="chart-note">
-          Computed from daily balance snapshots (time-weighted, deposits excluded from gains).
-          eToro keeps 12 months of balance history, so this view is limited to the last year.
+          Computed from stored daily balance snapshots (time-weighted, deposits excluded from
+          gains) — covers imported statement history beyond eToro&apos;s 12-month API window.
         </div>
       )}
     </section>

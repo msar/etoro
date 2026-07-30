@@ -38,7 +38,7 @@ function Drilldown({
         Close
       </button>
       <h3>
-        {symbol ?? `#${instrumentId}`} — {name ?? 'Instrument'} · closed trades (last 12 months)
+        {symbol ?? `#${instrumentId}`} — {name ?? 'Instrument'} · all stored closed trades
       </h3>
       {tradesError ? (
         <div className="error-box">{tradesError}</div>
@@ -48,7 +48,7 @@ function Drilldown({
           Loading trades…
         </div>
       ) : rows.length === 0 ? (
-        <div className="empty">No closed trades for this instrument in the last 12 months.</div>
+        <div className="empty">No stored closed trades for this instrument.</div>
       ) : (
         <>
           <div className="chart-note" style={{ marginBottom: 8 }}>

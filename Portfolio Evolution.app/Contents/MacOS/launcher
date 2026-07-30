@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# macOS .app entry point — opens Terminal and runs start.sh from the project root.
+set -euo pipefail
+
+CONTENTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+APP_DIR="$(cd "$CONTENTS_DIR/.." && pwd)"
+PROJECT_DIR="$(cd "$APP_DIR/.." && pwd)"
+
+if [[ ! -x "$PROJECT_DIR/start.sh" ]]; then
+  osascript -e "display alert \"Portfolio Evolution\" message \"Could not find start.sh next to this app.\n\nKeep Portfolio Evolution.app inside the project folder.\" as critical"
+  exit 1
+fi
+
+# Quote for AppleScript string embedding
+PROJECT_Q="${PROJECT_DIR//\\/\\\\}"
+PROJECT_Q="${PROJECT_Q//\"/\\\"}"
+
+osascript <<EOF
+tell application "Terminal"
+  activate
+  do script "cd \"$PROJECT_Q\" && ./start.sh"
+end tell
+EOF
+
+# Give the servers a moment, then open the dashboard
+(
+  for _ in $(seq 1 60); do
+    if curl -sf -o /dev/null "http://localhost:5173/" 2>/dev/null; then
+      open "http://localhost:5173/"
+      exit 0
+    fi
+    sleep 1
+  done
+) &
+
+exit 0

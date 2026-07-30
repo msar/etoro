@@ -2,7 +2,7 @@ import { cached, TTL } from '../cache.js';
 import { etoroFetch } from '../etoroClient.js';
 import { getBootstrap } from '../bootstrap.js';
 import { isSchemaMissing, markSchemaMissing } from '../schemaState.js';
-import { getSupabase, isSupabaseConfigured } from '../supabase.js';
+import { getSupabase, isSupabaseConfigured, selectAllRows } from '../supabase.js';
 import type { BalanceHistoryResponse, TradingEnv } from '../etoroTypes.js';
 import { getTrades, realizedPnlByDay } from './trades.js';
 
@@ -82,30 +82,33 @@ async function getEquityHistoryFromSupabase(
   if (boot.gcid === null) return null;
 
   const sb = getSupabase();
-  let query = sb
-    .from('balance_snapshots')
-    .select('date, cash, invested, pnl, total, net_flow')
-    .eq('gcid', boot.gcid)
-    .order('date', { ascending: true });
-  if (fromDate) query = query.gte('date', fromDate);
-  if (toDate) query = query.lte('date', toDate);
-
-  const { data, error } = await query;
-  if (error) {
-    markSchemaMissing(error.message);
-    console.warn('Supabase balance read failed, falling back to eToro:', error.message);
-    return null;
-  }
-  if (!data?.length) return null;
-
-  const rows = data as {
+  const gcid = boot.gcid;
+  // PostgREST caps selects at 1000 rows — paginate to get the full series.
+  const { rows: data, error } = await selectAllRows<{
     date: string;
     cash: number;
     invested: number;
     pnl: number;
     total: number;
     net_flow: number;
-  }[];
+  }>((from, to) => {
+    let query = sb
+      .from('balance_snapshots')
+      .select('date, cash, invested, pnl, total, net_flow')
+      .eq('gcid', gcid)
+      .order('date', { ascending: true });
+    if (fromDate) query = query.gte('date', fromDate);
+    if (toDate) query = query.lte('date', toDate);
+    return query.range(from, to);
+  });
+  if (error) {
+    markSchemaMissing(error);
+    console.warn('Supabase balance read failed, falling back to eToro:', error);
+    return null;
+  }
+  if (!data.length) return null;
+
+  const rows = data;
   const { points, deposits, withdrawals } = buildPointsFromRows(rows);
   const account = await sb
     .from('accounts')

@@ -11,10 +11,13 @@ import { EtoroApiError } from './errors.js';
 import { isSupabaseConfigured } from './supabase.js';
 import { getAllocationHistory } from './services/allocation.js';
 import { getEquityHistory } from './services/balances.js';
-import { getDerivedPerformance, getPerformance, type Granularity } from './services/performance.js';
+import { getBestPerformance, type Granularity } from './services/performance.js';
 import { getPortfolio } from './services/portfolio.js';
+import { getIncomeReport } from './services/income.js';
+import { getInstrumentPerformance } from './services/instrumentPerformance.js';
+import { getAccountStats } from './services/stats.js';
 import { getSyncStatus, runSync } from './services/sync.js';
-import { getTrades } from './services/trades.js';
+import { earliestStoredTradeDate, getTrades } from './services/trades.js';
 
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -119,16 +122,34 @@ app.get(
     }
     const from = dateParam(req, 'from');
     const to = dateParam(req, 'to');
+    res.json(await getBestPerformance(boot.username, boot.environment, g, from, to));
+  }),
+);
 
-    if (g !== 'weekly' && boot.username) {
-      try {
-        res.json(await getPerformance(boot.username, g, from, to));
-        return;
-      } catch (err) {
-        console.warn('Official gain series unavailable, deriving from balances:', (err as Error).message);
-      }
-    }
-    res.json(await getDerivedPerformance(boot.environment, g, from, to));
+app.get(
+  '/api/income',
+  handle(async (_req, res) => {
+    requireEtoroCredentials();
+    const boot = await getBootstrap();
+    res.json(await getIncomeReport(boot.environment));
+  }),
+);
+
+app.get(
+  '/api/instrument-performance',
+  handle(async (_req, res) => {
+    requireEtoroCredentials();
+    const boot = await getBootstrap();
+    res.json(await getInstrumentPerformance(boot.environment));
+  }),
+);
+
+app.get(
+  '/api/stats',
+  handle(async (_req, res) => {
+    requireEtoroCredentials();
+    const boot = await getBootstrap();
+    res.json(await getAccountStats(boot.environment));
   }),
 );
 
@@ -176,7 +197,10 @@ app.get(
   handle(async (req, res) => {
     requireEtoroCredentials();
     const boot = await getBootstrap();
-    const from = dateParam(req, 'from') ?? isoDaysAgo(364);
+    // Full stored history by default; eToro's 12-month window only applies
+    // when nothing has been imported/synced into Supabase yet.
+    const from =
+      dateParam(req, 'from') ?? (await earliestStoredTradeDate()) ?? isoDaysAgo(364);
     res.json({ items: await getTrades(boot.environment, from) });
   }),
 );
