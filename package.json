@@ -1,0 +1,20 @@
+{
+  "name": "etoro-portfolio-evolution",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Web app to analyze the evolution of an eToro portfolio over time",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "start": "concurrently -k -n server,web -c blue,green \"npm run dev:server\" \"npm run dev:web\"",
+    "dev": "npm start",
+    "dev:server": "npm run dev --workspace server",
+    "dev:web": "npm run dev --workspace web",
+    "build": "npm run build --workspace server && npm run build --workspace web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

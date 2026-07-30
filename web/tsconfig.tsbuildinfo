@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/components/allocationchart.tsx","./src/components/equitychart.tsx","./src/components/gainheatmap.tsx","./src/components/holdingstable.tsx","./src/components/performancechart.tsx","./src/components/segmented.tsx","./src/components/summarycards.tsx"],"version":"5.9.3"}
