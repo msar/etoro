@@ -48,11 +48,11 @@ Keys are validated, then saved only on this computer at `server/data/credentials
 
 ### Optional: Supabase instead of local SQLite
 
-Local SQLite is the default. If you prefer remote Postgres, pick **Supabase** on the login screen and run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (**001**–**004**) in the [Supabase SQL Editor](https://supabase.com/dashboard) — or print them with `npm run print-migration --workspace server`.
+Local SQLite is the default. If you prefer remote Postgres, pick **Supabase** on the login screen and run [`server/supabase/migrations/001_init.sql`](server/supabase/migrations/001_init.sql) once in the [Supabase SQL Editor](https://supabase.com/dashboard) — or print it with `npm run print-migration --workspace server`.
 
 ### One-time Supabase schema (remote history only)
 
-In the [Supabase SQL Editor](https://supabase.com/dashboard), run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (**001**–**004**) — or print them with `npm run print-migration --workspace server`. Migration **003** adds multi-broker tables; **004** adds `broker_lots` for E*TRADE G&L imports. Skip this entirely when using local history.
+In the [Supabase SQL Editor](https://supabase.com/dashboard), run [`server/supabase/migrations/001_init.sql`](server/supabase/migrations/001_init.sql) once — or print it with `npm run print-migration --workspace server`. Skip this entirely when using local history.
 
 ### Kraken
 

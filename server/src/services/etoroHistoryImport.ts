@@ -220,7 +220,7 @@ export async function importEtoroHistoryFromPaths(
             if (includeSymbol && /symbol/i.test(error.message)) {
               includeSymbol = false;
               warnings.push(
-                'closed_trades.symbol column missing — run migrations/002; importing without symbols.',
+                'closed_trades.symbol column missing — run migrations/001_init.sql; importing without symbols.',
               );
               const { error: retryErr } = await sb
                 .from('closed_trades')
@@ -256,7 +256,7 @@ export async function importEtoroHistoryFromPaths(
         if (/dividends|schema cache|Could not find the table/i.test(msg)) {
           dividendsImported = 0;
           warnings.push(
-            'dividends table missing — run migrations/002_symbols_dividends.sql, then re-upload Dividends.',
+            'dividends table missing — run migrations/001_init.sql, then re-upload Dividends.',
           );
         } else {
           throw err;

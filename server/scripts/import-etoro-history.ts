@@ -275,7 +275,7 @@ async function main(): Promise<void> {
             if (includeSymbol && /symbol/i.test(error.message)) {
               includeSymbol = false;
               console.warn(
-                '  closed_trades.symbol column missing — run migrations/002_symbols_dividends.sql to store tickers; importing without symbols.',
+                '  closed_trades.symbol column missing — run migrations/001_init.sql to store tickers; importing without symbols.',
               );
               const { error: retryErr } = await sb
                 .from('closed_trades')
@@ -320,7 +320,7 @@ async function main(): Promise<void> {
           const msg = err instanceof Error ? err.message : String(err);
           if (/dividends|schema cache|Could not find the table/i.test(msg)) {
             console.warn(
-              '  dividends table missing — run migrations/002_symbols_dividends.sql in the Supabase SQL Editor, then re-run with --skip-balances --skip-trades.',
+              '  dividends table missing — run migrations/001_init.sql in the Supabase SQL Editor, then re-run with --skip-balances --skip-trades.',
             );
             tableMissing = true;
             break;

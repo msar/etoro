@@ -587,7 +587,7 @@ app.listen(PORT, () => {
         )
         .catch((err) =>
           console.warn(
-            'Startup sync failed (local DB should auto-migrate; for Supabase run migrations 001–004):',
+            'Startup sync failed (local DB should auto-migrate; for Supabase run migrations/001_init.sql):',
             err.message,
           ),
         );

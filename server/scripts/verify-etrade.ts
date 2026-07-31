@@ -80,7 +80,7 @@ async function main() {
     const { error } = await sb.from('broker_lots').select('lot_key').limit(1);
     if (error) {
       throw new Error(
-        `broker_lots missing — run migration 004_etrade_lots.sql first.\n${error.message}`,
+        `broker_lots missing — run migrations/001_init.sql first.\n${error.message}`,
       );
     }
     const result = await importEtradeGl([{ buffer: buf, fileName: path.basename(filePath) }]);

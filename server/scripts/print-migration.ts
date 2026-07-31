@@ -1,9 +1,8 @@
 /**
- * Prints migration instructions. DDL cannot be applied via the service role REST API —
+ * Prints the init migration. DDL cannot be applied via the service role REST API —
  * run the SQL once in the Supabase Dashboard → SQL Editor.
  *
- * Usage: npx tsx scripts/print-migration.ts            (all migrations)
- *        npx tsx scripts/print-migration.ts 002        (a specific one)
+ * Usage: npx tsx scripts/print-migration.ts
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -11,11 +10,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dir = resolve(root, 'supabase/migrations');
-const filter = process.argv[2];
 
 const files = readdirSync(dir)
   .filter((f) => f.endsWith('.sql'))
-  .filter((f) => !filter || f.startsWith(filter))
   .sort();
 
 console.log(`

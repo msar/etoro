@@ -128,7 +128,7 @@ export async function getIncomeReport(env: TradingEnv): Promise<IncomeReport> {
         years.length > 0
           ? undefined
           : dividends === null
-            ? 'Dividends table missing — run migrations/002_symbols_dividends.sql, then import with the dividends CSV.'
+            ? 'Dividends table missing — run migrations/001_init.sql, then import with the dividends CSV.'
             : 'No stored dividends or trades yet — run the statement import.',
       years,
       totals,

@@ -1,6 +1,6 @@
 /**
  * Final SQLite schema for Portfolio Evolution history (local backend).
- * Mirrors server/supabase/migrations 001–004 without Postgres-only features (RLS, jsonb).
+ * Mirrors server/supabase/migrations/001_init.sql without Postgres-only features (RLS, jsonb).
  */
 export const SQLITE_SCHEMA_SQL = `
 PRAGMA foreign_keys = ON;

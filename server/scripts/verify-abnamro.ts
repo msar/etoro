@@ -91,7 +91,7 @@ async function runImport(): Promise<void> {
   const { error } = await sb.from('broker_accounts').select('id').limit(1);
   if (error) {
     throw new Error(
-      `broker_accounts missing — run migration 003_multi_broker.sql in the Supabase SQL editor first.\n${error.message}`,
+      `broker_accounts missing — run migrations/001_init.sql in the Supabase SQL editor first.\n${error.message}`,
     );
   }
 

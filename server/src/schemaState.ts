@@ -25,6 +25,6 @@ export function clearSchemaMissing(): void {
 export function schemaMissingHint(): string {
   return (
     'History tables are missing. If you use local storage, restart the app to recreate the SQLite schema. ' +
-    'If you use Supabase, run the SQL in server/supabase/migrations/ (001–004) in the SQL editor, then reload.'
+    'If you use Supabase, run server/supabase/migrations/001_init.sql in the SQL editor, then reload.'
   );
 }

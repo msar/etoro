@@ -136,7 +136,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
               </label>
               <p className="field-hint">
                 Project Settings → API. Use the <strong>service_role</strong> secret (not the anon
-                key). Run <code>server/supabase/migrations/</code> 001–004 once in the SQL editor.
+                key). Run <code>server/supabase/migrations/001_init.sql</code> once in the SQL editor.
               </p>
             </>
           )}
