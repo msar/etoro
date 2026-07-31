@@ -162,6 +162,7 @@ app.post(
     const status = await configureCredentials({
       etoroApiKey: String(body.etoroApiKey ?? ''),
       etoroUserKey: String(body.etoroUserKey ?? ''),
+      historyBackend: body.historyBackend != null ? String(body.historyBackend) : 'local',
       supabaseUrl: String(body.supabaseUrl ?? ''),
       supabaseServiceRoleKey: String(body.supabaseServiceRoleKey ?? ''),
     });
@@ -459,6 +460,7 @@ app.post(
     const status = await configureKrakenCredentials({
       apiKey: String(body.apiKey ?? ''),
       apiSecret: String(body.apiSecret ?? ''),
+      historyBackend: body.historyBackend != null ? String(body.historyBackend) : undefined,
       supabaseUrl: body.supabaseUrl != null ? String(body.supabaseUrl) : undefined,
       supabaseServiceRoleKey:
         body.supabaseServiceRoleKey != null ? String(body.supabaseServiceRoleKey) : undefined,
@@ -561,8 +563,11 @@ app.listen(PORT, () => {
     return;
   }
   console.log(
-    `Credentials loaded (etoro=${status.etoroConfigured}, kraken=${status.krakenConfigured}, supabase=${status.supabaseConfigured})`,
+    `Credentials loaded (etoro=${status.etoroConfigured}, kraken=${status.krakenConfigured}, history=${status.historyBackend})`,
   );
+  if (status.historyBackend === 'local' && status.localDbPath) {
+    console.log(`Local history DB: ${status.localDbPath}`);
+  }
 
   if (status.etoroConfigured) {
     void getBootstrap()
@@ -582,7 +587,7 @@ app.listen(PORT, () => {
         )
         .catch((err) =>
           console.warn(
-            'Startup sync failed (run server/supabase/migrations/001_init.sql and 003_multi_broker.sql in the Supabase SQL editor if tables are missing):',
+            'Startup sync failed (local DB should auto-migrate; for Supabase run migrations 001–004):',
             err.message,
           ),
         );

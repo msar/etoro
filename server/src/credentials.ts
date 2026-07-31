@@ -6,9 +6,13 @@ import { BROKER_IDS, isBrokerId, type BrokerId } from './brokers.js';
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const CREDENTIALS_PATH = join(DATA_DIR, 'credentials.json');
 
+export type HistoryBackend = 'local' | 'supabase';
+
 export interface AppCredentials {
-  supabaseUrl: string;
-  supabaseServiceRoleKey: string;
+  /** Where portfolio history is stored. Default: local SQLite. */
+  historyBackend?: HistoryBackend;
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
   etoroApiKey?: string;
   etoroUserKey?: string;
   krakenApiKey?: string;
@@ -34,10 +38,28 @@ function parseEnabledBrokers(raw: unknown): BrokerId[] | undefined {
   return out;
 }
 
+function parseBackend(raw: unknown, hasSupabase: boolean): HistoryBackend {
+  if (raw === 'supabase' || raw === 'local') return raw;
+  // Legacy files always had Supabase keys → keep them on supabase backend.
+  if (hasSupabase) return 'supabase';
+  return 'local';
+}
+
+/**
+ * Normalize raw JSON/env into credentials.
+ * Local backend needs no Supabase keys. Supabase backend requires both.
+ * At least one broker pair OR explicit local backend with any save is enough
+ * to persist; empty objects return null.
+ */
 function normalize(raw: Partial<AppCredentials> & Record<string, unknown>): AppCredentials | null {
-  const supabaseUrl = trimOrEmpty(raw.supabaseUrl).replace(/\/$/, '');
-  const supabaseServiceRoleKey = trimOrEmpty(raw.supabaseServiceRoleKey);
-  if (!supabaseUrl || !supabaseServiceRoleKey) return null;
+  const supabaseUrl = trimOrEmpty(raw.supabaseUrl).replace(/\/$/, '') || undefined;
+  const supabaseServiceRoleKey = trimOrEmpty(raw.supabaseServiceRoleKey) || undefined;
+  const hasSupabase = Boolean(supabaseUrl && supabaseServiceRoleKey);
+  const historyBackend = parseBackend(raw.historyBackend, hasSupabase);
+
+  if (historyBackend === 'supabase' && !hasSupabase) {
+    return null;
+  }
 
   const etoroApiKey = trimOrEmpty(raw.etoroApiKey) || undefined;
   const etoroUserKey = trimOrEmpty(raw.etoroUserKey) || undefined;
@@ -45,9 +67,24 @@ function normalize(raw: Partial<AppCredentials> & Record<string, unknown>): AppC
   const krakenApiSecret = trimOrEmpty(raw.krakenApiSecret) || undefined;
   const enabledBrokers = parseEnabledBrokers(raw.enabledBrokers);
 
+  const hasEtoro = Boolean(etoroApiKey && etoroUserKey);
+  const hasKraken = Boolean(krakenApiKey && krakenApiSecret);
+  const hasAnything =
+    hasEtoro || hasKraken || hasSupabase || historyBackend === 'local' || enabledBrokers !== undefined;
+
+  // Reject completely empty payloads (nothing to save).
+  if (!hasAnything && raw.historyBackend === undefined) {
+    return null;
+  }
+
+  // Local-only stub (e.g. enabling local before brokers) is allowed when backend is set.
+  if (!hasEtoro && !hasKraken && !hasSupabase && enabledBrokers === undefined && raw.historyBackend === undefined) {
+    return null;
+  }
+
   return {
-    supabaseUrl,
-    supabaseServiceRoleKey,
+    historyBackend,
+    ...(supabaseUrl && supabaseServiceRoleKey ? { supabaseUrl, supabaseServiceRoleKey } : {}),
     ...(etoroApiKey && etoroUserKey ? { etoroApiKey, etoroUserKey } : {}),
     ...(krakenApiKey && krakenApiSecret ? { krakenApiKey, krakenApiSecret } : {}),
     ...(enabledBrokers !== undefined ? { enabledBrokers } : {}),
@@ -55,7 +92,9 @@ function normalize(raw: Partial<AppCredentials> & Record<string, unknown>): AppC
 }
 
 function fromEnv(): AppCredentials | null {
+  const backendEnv = trimOrEmpty(process.env.HISTORY_BACKEND);
   return normalize({
+    historyBackend: backendEnv === 'supabase' || backendEnv === 'local' ? backendEnv : undefined,
     etoroApiKey: process.env.ETORO_API_KEY,
     etoroUserKey: process.env.ETORO_USER_KEY,
     supabaseUrl: process.env.SUPABASE_URL,
@@ -107,15 +146,28 @@ export function hasSupabaseCredentials(): boolean {
   return Boolean(c?.supabaseUrl && c?.supabaseServiceRoleKey);
 }
 
+export function getHistoryBackend(): HistoryBackend {
+  const c = loadCredentials();
+  if (c?.historyBackend) return c.historyBackend;
+  if (hasSupabaseCredentials()) return 'supabase';
+  return 'local';
+}
+
 /** Full replace (used by eToro login). Preserves Kraken keys / enabledBrokers when omitted. */
 export function saveCredentials(creds: AppCredentials): void {
   const existing = fromFile();
   const merged = normalize({
     ...existing,
     ...creds,
-    // Explicit empty strings from callers clear optional broker keys only when provided as ''.
+    historyBackend: creds.historyBackend ?? existing?.historyBackend ?? 'local',
     etoroApiKey: creds.etoroApiKey ?? existing?.etoroApiKey,
     etoroUserKey: creds.etoroUserKey ?? existing?.etoroUserKey,
+    supabaseUrl:
+      creds.supabaseUrl !== undefined ? creds.supabaseUrl : existing?.supabaseUrl,
+    supabaseServiceRoleKey:
+      creds.supabaseServiceRoleKey !== undefined
+        ? creds.supabaseServiceRoleKey
+        : existing?.supabaseServiceRoleKey,
     krakenApiKey:
       creds.krakenApiKey !== undefined ? creds.krakenApiKey : existing?.krakenApiKey,
     krakenApiSecret:
@@ -124,17 +176,22 @@ export function saveCredentials(creds: AppCredentials): void {
       creds.enabledBrokers !== undefined ? creds.enabledBrokers : existing?.enabledBrokers,
   });
   if (!merged) {
-    throw new Error('Supabase URL and service role key are required to save credentials');
+    throw new Error('Could not save credentials — provide broker keys or choose local history.');
   }
   persist(merged);
 }
 
-/** Merge partial fields into the credentials file (creates file if supabase provided). */
+/** Merge partial fields into the credentials file. */
 export function updateCredentials(patch: Partial<AppCredentials>): AppCredentials {
   const existing = loadCredentials();
   const merged = normalize({
-    supabaseUrl: patch.supabaseUrl ?? existing?.supabaseUrl,
-    supabaseServiceRoleKey: patch.supabaseServiceRoleKey ?? existing?.supabaseServiceRoleKey,
+    historyBackend: patch.historyBackend ?? existing?.historyBackend,
+    supabaseUrl:
+      patch.supabaseUrl !== undefined ? patch.supabaseUrl : existing?.supabaseUrl,
+    supabaseServiceRoleKey:
+      patch.supabaseServiceRoleKey !== undefined
+        ? patch.supabaseServiceRoleKey
+        : existing?.supabaseServiceRoleKey,
     etoroApiKey:
       patch.etoroApiKey !== undefined ? patch.etoroApiKey : existing?.etoroApiKey,
     etoroUserKey:
@@ -147,7 +204,7 @@ export function updateCredentials(patch: Partial<AppCredentials>): AppCredential
       patch.enabledBrokers !== undefined ? patch.enabledBrokers : existing?.enabledBrokers,
   });
   if (!merged) {
-    throw new Error('Supabase URL and service role key are required');
+    throw new Error('Could not update credentials');
   }
   persist(merged);
   return merged;

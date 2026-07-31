@@ -171,7 +171,7 @@ let syncInFlight: Promise<SyncResult> | null = null;
  */
 export async function runSync(): Promise<SyncResult> {
   if (!isSupabaseConfigured()) {
-    throw new Error('Supabase is not configured (set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY).');
+    throw new Error('History store is not configured.');
   }
   if (isSchemaMissing()) {
     clearSchemaMissing(); // allow one re-probe after the user applies the migration

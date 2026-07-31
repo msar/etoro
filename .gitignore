@@ -8,6 +8,9 @@ server/data/
 **/credentials.json
 *.pem
 *.local
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 .DS_Store
 .cursor/
 build/

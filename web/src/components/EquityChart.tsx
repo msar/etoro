@@ -103,7 +103,7 @@ export function EquityChart() {
             the gap to total value is money earned, not added.
             {history?.source === 'supabase' && history.storedSince
               ? ` Stored since ${history.storedSince} (grows beyond eToro’s 12-month API window).`
-              : ' Limited to eToro’s last 12 months until Supabase history is seeded.'}
+              : ' Limited to eToro’s last 12 months until history is synced.'}
           </div>
         </div>
         {history && (

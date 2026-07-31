@@ -1,6 +1,7 @@
 import {
   clearCredentials,
   clearKrakenCredentials,
+  getHistoryBackend,
   hasCredentials,
   hasEtoroCredentials,
   hasKrakenCredentials,
@@ -8,14 +9,16 @@ import {
   loadCredentials,
   saveCredentials,
   updateCredentials,
+  type HistoryBackend,
 } from './credentials.js';
 import { BROKER_CATALOG, isBrokerId, type BrokerId } from './brokers.js';
 import { cacheClear } from './cache.js';
+import { ensureLocalDb, getLocalDbPath, resetHistoryClient } from './db/index.js';
 import { etoroFetchWithKeys } from './etoroClient.js';
 import { EtoroApiError } from './errors.js';
 import { loadEnabledBrokers, persistEnabledBrokers } from './preferences.js';
 import { clearSchemaMissing } from './schemaState.js';
-import { probeSupabase, resetSupabaseClient } from './supabase.js';
+import { probeSupabase } from './supabase.js';
 import { findAbnAccountId } from './services/abnamro.js';
 import { findEtradeAccountId } from './services/etrade.js';
 import { findKrakenAccountId } from './services/kraken.js';
@@ -25,45 +28,26 @@ export interface CredentialsStatus {
   etoroConfigured: boolean;
   supabaseConfigured: boolean;
   krakenConfigured: boolean;
+  historyBackend: HistoryBackend;
+  historyConfigured: boolean;
+  localDbPath: string | null;
 }
 
 export function getCredentialsStatus(): CredentialsStatus {
+  const backend = getHistoryBackend();
+  const historyConfigured = backend === 'local' || hasSupabaseCredentials();
   return {
     configured: hasCredentials(),
     etoroConfigured: hasEtoroCredentials(),
     supabaseConfigured: hasSupabaseCredentials(),
     krakenConfigured: hasKrakenCredentials(),
+    historyBackend: backend,
+    historyConfigured,
+    localDbPath: backend === 'local' ? getLocalDbPath() : null,
   };
 }
 
-/**
- * Validate candidate keys against eToro + Supabase, then persist to disk.
- * Preserves existing Kraken keys and enabledBrokers.
- */
-export async function configureCredentials(input: {
-  etoroApiKey: string;
-  etoroUserKey: string;
-  supabaseUrl: string;
-  supabaseServiceRoleKey: string;
-}): Promise<CredentialsStatus> {
-  const etoroApiKey = input.etoroApiKey.trim();
-  const etoroUserKey = input.etoroUserKey.trim();
-  const supabaseUrl = input.supabaseUrl.trim().replace(/\/$/, '');
-  const supabaseServiceRoleKey = input.supabaseServiceRoleKey.trim();
-
-  if (!etoroApiKey || !etoroUserKey) {
-    throw new EtoroApiError('eToro API key and user key are required.', 400);
-  }
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new EtoroApiError('Supabase URL and service role key are required.', 400);
-  }
-  if (!/^https:\/\/.+\.supabase\.co$/i.test(supabaseUrl)) {
-    throw new EtoroApiError(
-      'Supabase URL should look like https://YOUR_PROJECT.supabase.co',
-      400,
-    );
-  }
-
+async function validateEtoroKeys(etoroApiKey: string, etoroUserKey: string): Promise<void> {
   try {
     await etoroFetchWithKeys('/api/v1/trading/info/real/pnl', etoroApiKey, etoroUserKey);
   } catch (err) {
@@ -83,12 +67,58 @@ export async function configureCredentials(input: {
       throw new EtoroApiError(`eToro credentials failed: ${msg}`, 401);
     }
   }
+}
 
-  try {
-    await probeSupabase(supabaseUrl, supabaseServiceRoleKey);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Invalid Supabase credentials';
-    throw new EtoroApiError(msg, 401);
+/**
+ * Validate candidate keys, then persist. Supabase is optional when using local history.
+ */
+export async function configureCredentials(input: {
+  etoroApiKey: string;
+  etoroUserKey: string;
+  historyBackend?: HistoryBackend | string;
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
+}): Promise<CredentialsStatus> {
+  const etoroApiKey = input.etoroApiKey.trim();
+  const etoroUserKey = input.etoroUserKey.trim();
+  const supabaseUrl = (input.supabaseUrl ?? '').trim().replace(/\/$/, '');
+  const supabaseServiceRoleKey = (input.supabaseServiceRoleKey ?? '').trim();
+
+  if (!etoroApiKey || !etoroUserKey) {
+    throw new EtoroApiError('eToro API key and user key are required.', 400);
+  }
+
+  let historyBackend: HistoryBackend =
+    input.historyBackend === 'supabase' ? 'supabase' : 'local';
+  if (historyBackend === 'local' && supabaseUrl && supabaseServiceRoleKey) {
+    // Explicit Supabase keys with no backend flag → still allow choosing supabase
+    if (input.historyBackend === 'supabase') historyBackend = 'supabase';
+  }
+  if (input.historyBackend === 'supabase') historyBackend = 'supabase';
+
+  if (historyBackend === 'supabase') {
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      throw new EtoroApiError('Supabase URL and service role key are required for remote history.', 400);
+    }
+    if (!/^https:\/\/.+\.supabase\.co$/i.test(supabaseUrl)) {
+      throw new EtoroApiError(
+        'Supabase URL should look like https://YOUR_PROJECT.supabase.co',
+        400,
+      );
+    }
+  }
+
+  await validateEtoroKeys(etoroApiKey, etoroUserKey);
+
+  if (historyBackend === 'supabase') {
+    try {
+      await probeSupabase(supabaseUrl, supabaseServiceRoleKey);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Invalid Supabase credentials';
+      throw new EtoroApiError(msg, 401);
+    }
+  } else {
+    ensureLocalDb();
   }
 
   const existing = loadCredentials();
@@ -98,16 +128,22 @@ export async function configureCredentials(input: {
     : [...prevEnabled, 'etoro' as BrokerId];
 
   saveCredentials({
+    historyBackend,
     etoroApiKey,
     etoroUserKey,
-    supabaseUrl,
-    supabaseServiceRoleKey,
+    ...(historyBackend === 'supabase'
+      ? { supabaseUrl, supabaseServiceRoleKey }
+      : {
+          // Keep prior Supabase keys on disk if any (user may switch back later)
+          supabaseUrl: existing?.supabaseUrl,
+          supabaseServiceRoleKey: existing?.supabaseServiceRoleKey,
+        }),
     krakenApiKey: existing?.krakenApiKey,
     krakenApiSecret: existing?.krakenApiSecret,
     enabledBrokers: enabled,
   });
   persistEnabledBrokers(enabled);
-  resetSupabaseClient();
+  resetHistoryClient();
   clearSchemaMissing();
   cacheClear();
 
@@ -116,7 +152,7 @@ export async function configureCredentials(input: {
 
 export function logoutCredentials(): CredentialsStatus {
   clearCredentials();
-  resetSupabaseClient();
+  resetHistoryClient();
   clearSchemaMissing();
   cacheClear();
   return getCredentialsStatus();
@@ -134,7 +170,9 @@ export function requireKrakenCredentials(): void {
   }
 }
 
+/** @deprecated Prefer local history; only required when historyBackend === 'supabase'. */
 export function requireSupabaseCredentials(): void {
+  if (getHistoryBackend() === 'local') return;
   if (!hasSupabaseCredentials()) {
     throw new EtoroApiError('supabase_credentials_required', 401);
   }
@@ -163,7 +201,6 @@ async function detectConnectedBrokers(): Promise<BrokerId[]> {
   }
   try {
     if (!hasKrakenCredentials() && (await findKrakenAccountId())) {
-      // Historical data without keys still counts as connected for display
       if (!connected.includes('kraken')) connected.push('kraken');
     }
   } catch {
@@ -181,7 +218,6 @@ export async function getBrokersStatus(): Promise<BrokersStatus> {
   let enabled = loadEnabledBrokers();
 
   if (enabled === null) {
-    // Legacy migration: only show brokers that are already connected (not the full catalog).
     enabled = connected.length ? [...connected] : [];
     persistEnabledBrokers(enabled);
   }
@@ -216,6 +252,7 @@ export async function disableBroker(id: string): Promise<BrokersStatus> {
 export async function configureKrakenCredentials(input: {
   apiKey: string;
   apiSecret: string;
+  historyBackend?: HistoryBackend | string;
   supabaseUrl?: string;
   supabaseServiceRoleKey?: string;
 }): Promise<CredentialsStatus> {
@@ -225,35 +262,45 @@ export async function configureKrakenCredentials(input: {
     throw new EtoroApiError('Kraken API key and private key are required.', 400);
   }
 
+  const existing = loadCredentials();
+  let historyBackend: HistoryBackend =
+    input.historyBackend === 'supabase'
+      ? 'supabase'
+      : existing?.historyBackend === 'supabase'
+        ? 'supabase'
+        : 'local';
+
   let supabaseUrl = (input.supabaseUrl ?? '').trim().replace(/\/$/, '');
   let supabaseServiceRoleKey = (input.supabaseServiceRoleKey ?? '').trim();
-  const existing = loadCredentials();
 
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    if (!existing?.supabaseUrl || !existing.supabaseServiceRoleKey) {
-      throw new EtoroApiError(
-        'Supabase URL and service role key are required (first-time setup).',
-        400,
-      );
+  if (historyBackend === 'supabase') {
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
+      if (!existing?.supabaseUrl || !existing.supabaseServiceRoleKey) {
+        throw new EtoroApiError(
+          'Supabase URL and service role key are required when using remote history.',
+          400,
+        );
+      }
+      supabaseUrl = existing.supabaseUrl;
+      supabaseServiceRoleKey = existing.supabaseServiceRoleKey;
+    } else {
+      if (!/^https:\/\/.+\.supabase\.co$/i.test(supabaseUrl)) {
+        throw new EtoroApiError(
+          'Supabase URL should look like https://YOUR_PROJECT.supabase.co',
+          400,
+        );
+      }
+      try {
+        await probeSupabase(supabaseUrl, supabaseServiceRoleKey);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Invalid Supabase credentials';
+        throw new EtoroApiError(msg, 401);
+      }
     }
-    supabaseUrl = existing.supabaseUrl;
-    supabaseServiceRoleKey = existing.supabaseServiceRoleKey;
   } else {
-    if (!/^https:\/\/.+\.supabase\.co$/i.test(supabaseUrl)) {
-      throw new EtoroApiError(
-        'Supabase URL should look like https://YOUR_PROJECT.supabase.co',
-        400,
-      );
-    }
-    try {
-      await probeSupabase(supabaseUrl, supabaseServiceRoleKey);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Invalid Supabase credentials';
-      throw new EtoroApiError(msg, 401);
-    }
+    ensureLocalDb();
   }
 
-  // Validate Kraken keys with a Balance call (lazy import avoids circular init issues)
   const { probeKrakenCredentials } = await import('./krakenClient.js');
   await probeKrakenCredentials(apiKey, apiSecret);
 
@@ -263,14 +310,14 @@ export async function configureKrakenCredentials(input: {
     : [...prevEnabled, 'kraken' as BrokerId];
 
   updateCredentials({
-    supabaseUrl,
-    supabaseServiceRoleKey,
+    historyBackend,
+    ...(historyBackend === 'supabase' ? { supabaseUrl, supabaseServiceRoleKey } : {}),
     krakenApiKey: apiKey,
     krakenApiSecret: apiSecret,
     enabledBrokers: enabled,
   });
   persistEnabledBrokers(enabled);
-  resetSupabaseClient();
+  resetHistoryClient();
   clearSchemaMissing();
   cacheClear();
 

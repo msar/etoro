@@ -475,9 +475,12 @@ export interface KrakenOverview {
   allocation: { asset: string; value: number; pct: number }[];
 }
 
+export type HistoryBackend = 'local' | 'supabase';
+
 export interface KrakenCredentialsInput {
   apiKey: string;
   apiSecret: string;
+  historyBackend?: HistoryBackend;
   supabaseUrl?: string;
   supabaseServiceRoleKey?: string;
 }
@@ -601,8 +604,9 @@ export interface EtradeOverview {
 export interface CredentialsInput {
   etoroApiKey: string;
   etoroUserKey: string;
-  supabaseUrl: string;
-  supabaseServiceRoleKey: string;
+  historyBackend?: HistoryBackend;
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
 }
 
 export interface CredentialsStatus {
@@ -610,6 +614,9 @@ export interface CredentialsStatus {
   etoroConfigured: boolean;
   supabaseConfigured: boolean;
   krakenConfigured: boolean;
+  historyBackend?: HistoryBackend;
+  historyConfigured?: boolean;
+  localDbPath?: string | null;
 }
 
 async function get<T>(path: string): Promise<T> {

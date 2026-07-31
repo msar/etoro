@@ -36,32 +36,34 @@ On Overview, use **Add broker** / **Remove** to choose which integrations appear
 
 ### First-time credentials
 
-Connecting **eToro** or **Kraken** asks for that broker’s API keys plus (once) your Supabase project for history storage:
+Connecting **eToro** or **Kraken** asks for that broker’s API keys. Portfolio history is stored **locally by default** (SQLite at `server/data/history.sqlite`) — no cloud database required.
 
 | Field | Where to get it |
 |---|---|
 | eToro public API key / user key | [eToro Settings → Data API](https://www.etoro.com/settings/data-api) |
 | Kraken API key / private key | [Kraken → Security → API](https://www.kraken.com/u/security/api) — enable **Query funds** |
-| Supabase project URL | Supabase → Project Settings → API |
-| Supabase service role key | Same page — use **service_role**, not anon |
+| Supabase (optional) | Only if you choose **Supabase** history on the login screen — project URL + **service_role** key |
 
 Keys are validated, then saved only on this computer at `server/data/credentials.json` (mode `0600`). Enabled-broker preferences live in `server/data/preferences.json`.
 
-### One-time Supabase schema
+### Optional: Supabase instead of local SQLite
 
-In the [Supabase SQL Editor](https://supabase.com/dashboard), run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (**001**–**004**) — or print them with `npm run print-migration --workspace server`. Migration **003** adds multi-broker tables; **004** adds `broker_lots` for E*TRADE G&L imports.
+Local SQLite is the default. If you prefer remote Postgres, pick **Supabase** on the login screen and run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (**001**–**004**) in the [Supabase SQL Editor](https://supabase.com/dashboard) — or print them with `npm run print-migration --workspace server`.
+
+### One-time Supabase schema (remote history only)
+
+In the [Supabase SQL Editor](https://supabase.com/dashboard), run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (**001**–**004**) — or print them with `npm run print-migration --workspace server`. Migration **003** adds multi-broker tables; **004** adds `broker_lots` for E*TRADE G&L imports. Skip this entirely when using local history.
 
 ### Kraken
 
 1. Overview → **Add broker** → Kraken (or open `/kraken`).
-2. Paste API key + private key (Query funds). Supabase is required on first connect if not already configured.
+2. Paste API key + private key (Query funds).
 3. **Sync now** pulls balances, prices them in USD (TradeBalance + tickers), and stores a daily equity snapshot.
 
 ### ABN AMRO Guided Investing
 
-1. Apply migration 003 (above).
-2. Add the broker on Overview, then upload quarterly *Portfolio summary* / *Portefeuille Overzicht* PDFs.
-3. Or bulk-import:
+1. Add the broker on Overview, then upload quarterly *Portfolio summary* / *Portefeuille Overzicht* PDFs.
+2. Or bulk-import:
 
 ```bash
 npm run import:abnamro --workspace server
@@ -71,9 +73,8 @@ npm run verify:abnamro --workspace server
 
 ### E*TRADE
 
-1. Apply migration 004.
-2. Upload Client Statement PDFs and/or *Gains & Losses Expanded* `.xlsx`.
-3. Or:
+1. Upload Client Statement PDFs and/or *Gains & Losses Expanded* `.xlsx`.
+2. Or:
 
 ```bash
 npm run verify:etrade --workspace server
@@ -130,7 +131,7 @@ Recipients only need the DMG. The `.app` pulls the latest `main` branch from thi
 - `server/data/` (includes `credentials.json`, `preferences.json`)
 - any `credentials.json`
 
-On the macOS app install, the same files live under `~/Library/Application Support/Portfolio Evolution/app/server/data/`.
+On the macOS app install, the same files live under `~/Library/Application Support/Portfolio Evolution/app/server/data/` (including `history.sqlite` when using local history).
 
 Safe to commit: source code, `server/.env.example` (empty placeholders), and the SQL migration.
 

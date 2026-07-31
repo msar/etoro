@@ -1,5 +1,11 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { loadCredentials } from './credentials.js';
+import {
+  getDb,
+  isHistoryConfigured,
+  resetHistoryClient,
+} from './db/index.js';
+
+export type { HistoryClient } from './db/index.js';
 
 export interface AccountRow {
   gcid: number;
@@ -111,38 +117,28 @@ export interface HoldingSnapshotRow {
   via_copy: boolean;
 }
 
-let client: SupabaseClient | null = null;
-let clientKey: string | null = null;
-
-/** True when Supabase credentials are present (file or env). */
+/**
+ * True when the active history store is ready (local SQLite always; Supabase when keyed).
+ * Kept name for call-site compatibility — prefer isHistoryConfigured for new code.
+ */
 export function isSupabaseConfigured(): boolean {
-  const c = loadCredentials();
-  return Boolean(c?.supabaseUrl && c?.supabaseServiceRoleKey);
+  return isHistoryConfigured();
 }
 
-/** Drop the cached client so the next call picks up new credentials. */
+export { isHistoryConfigured };
+
+/** Drop cached clients so the next call picks up new credentials / backend. */
 export function resetSupabaseClient(): void {
-  client = null;
-  clientKey = null;
+  resetHistoryClient();
 }
 
 /**
- * Server-only Supabase client using the service role key (bypasses RLS).
+ * Active history client (local SQLite or remote Supabase).
  * Never import this into the Vite frontend.
+ * Typed as SupabaseClient for call-site compatibility; SQLite implements the same chain API.
  */
 export function getSupabase(): SupabaseClient {
-  const c = loadCredentials();
-  if (!c?.supabaseUrl || !c.supabaseServiceRoleKey) {
-    throw new Error('Supabase credentials are not configured. Use the login screen to save them.');
-  }
-  const key = `${c.supabaseUrl}|${c.supabaseServiceRoleKey}`;
-  if (!client || clientKey !== key) {
-    client = createClient(c.supabaseUrl, c.supabaseServiceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    clientKey = key;
-  }
-  return client;
+  return getDb() as unknown as SupabaseClient;
 }
 
 const PAGE_SIZE = 1000;

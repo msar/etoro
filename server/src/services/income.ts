@@ -61,7 +61,7 @@ export async function getIncomeReport(env: TradingEnv): Promise<IncomeReport> {
     };
 
     if (!isSupabaseConfigured() || isSchemaMissing()) {
-      return { ...empty, reason: 'Supabase history store is not configured.' };
+      return { ...empty, reason: 'History store is not configured.' };
     }
     const boot = await getBootstrap();
     if (boot.gcid === null) {

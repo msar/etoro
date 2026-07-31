@@ -357,7 +357,7 @@ export async function getKrakenOverview(): Promise<KrakenOverview> {
     reason: configured
       ? isSupabaseConfigured()
         ? 'No Kraken snapshots yet — sync to pull balances.'
-        : 'Configure Supabase to store Kraken history.'
+        : 'History storage is not configured.'
       : 'Connect your Kraken API key and private key.',
     accountId: null,
     currency: 'USD',

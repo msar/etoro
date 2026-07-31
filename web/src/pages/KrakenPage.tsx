@@ -14,6 +14,7 @@ import {
   fmtMoney,
   fmtPct,
   type Granularity,
+  type HistoryBackend,
   type KrakenOverview,
 } from '../api';
 import { AppNav } from '../components/AppNav';
@@ -26,6 +27,8 @@ export function KrakenPage() {
   const [overview, setOverview] = useState<KrakenOverview | null>(null);
   const [credStatus, setCredStatus] = useState<{
     krakenConfigured: boolean;
+    historyBackend?: string;
+    historyConfigured?: boolean;
     supabaseConfigured: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +51,8 @@ export function KrakenPage() {
       setOverview(ov);
       setCredStatus({
         krakenConfigured: status.krakenConfigured,
+        historyBackend: status.historyBackend,
+        historyConfigured: status.historyConfigured,
         supabaseConfigured: status.supabaseConfigured,
       });
       if (!status.krakenConfigured) setImportOpen(true);
@@ -75,15 +80,21 @@ export function KrakenPage() {
       const payload: {
         apiKey: string;
         apiSecret: string;
+        historyBackend?: HistoryBackend;
         supabaseUrl?: string;
         supabaseServiceRoleKey?: string;
       } = {
         apiKey: form.apiKey,
         apiSecret: form.apiSecret,
       };
-      if (!credStatus?.supabaseConfigured) {
+      // Only ask for Supabase when the app is already on the remote backend and keys are missing.
+      if (credStatus?.historyBackend === 'supabase' && !credStatus.supabaseConfigured) {
+        payload.historyBackend = 'supabase';
         payload.supabaseUrl = form.supabaseUrl;
         payload.supabaseServiceRoleKey = form.supabaseServiceRoleKey;
+      } else {
+        payload.historyBackend =
+          credStatus?.historyBackend === 'supabase' ? 'supabase' : 'local';
       }
       await api.saveKrakenCredentials(payload);
       setImportOpen(false);
@@ -135,7 +146,10 @@ export function KrakenPage() {
     }));
   }, [overview]);
 
-  const needsSupabase = credStatus != null && !credStatus.supabaseConfigured;
+  const needsSupabase =
+    credStatus != null &&
+    credStatus.historyBackend === 'supabase' &&
+    !credStatus.supabaseConfigured;
 
   return (
     <div className="app">

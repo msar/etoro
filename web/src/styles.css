@@ -753,6 +753,27 @@ body {
   margin-bottom: 12px;
 }
 
+.login-card .radio-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-weight: 400;
+  color: var(--text);
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+
+.login-card .radio-row input[type='radio'] {
+  display: inline-block;
+  width: auto;
+  margin: 3px 0 0;
+  flex-shrink: 0;
+}
+
+.login-card .radio-row strong {
+  font-weight: 600;
+}
+
 .login-card input {
   display: block;
   width: 100%;

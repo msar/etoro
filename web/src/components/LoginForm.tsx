@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { api, type CredentialsInput } from '../api';
+import { api, type CredentialsInput, type HistoryBackend } from '../api';
 
 interface LoginFormProps {
   onSuccess: () => void;
@@ -9,14 +9,21 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const [form, setForm] = useState<CredentialsInput>({
     etoroApiKey: '',
     etoroUserKey: '',
+    historyBackend: 'local',
     supabaseUrl: '',
     supabaseServiceRoleKey: '',
   });
+  const [showSupabase, setShowSupabase] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function update<K extends keyof CredentialsInput>(key: K, value: string) {
+  function update<K extends keyof CredentialsInput>(key: K, value: CredentialsInput[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function setBackend(backend: HistoryBackend) {
+    update('historyBackend', backend);
+    setShowSupabase(backend === 'supabase');
   }
 
   async function onSubmit(e: FormEvent) {
@@ -38,8 +45,8 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
       <form className="login-card" onSubmit={onSubmit}>
         <h1>Connect your accounts</h1>
         <p className="login-lead">
-          Paste your eToro API keys and Supabase project credentials. They are saved only on this
-          machine (<code>server/data/credentials.json</code>) and never sent to GitHub.
+          Paste your eToro API keys. History is stored on this machine by default — no cloud database
+          required. Credentials stay in <code>server/data/</code> and are never sent to GitHub.
         </p>
 
         <fieldset>
@@ -77,36 +84,62 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         </fieldset>
 
         <fieldset>
-          <legend>Supabase</legend>
-          <label>
-            Project URL
+          <legend>History storage</legend>
+          <label className="radio-row">
             <input
-              type="url"
-              autoComplete="off"
-              spellCheck={false}
-              value={form.supabaseUrl}
-              onChange={(e) => update('supabaseUrl', e.target.value)}
-              placeholder="https://xxxx.supabase.co"
-              required
+              type="radio"
+              name="historyBackend"
+              checked={form.historyBackend !== 'supabase'}
+              onChange={() => setBackend('local')}
             />
+            <span>
+              <strong>Local (recommended)</strong> — SQLite file on this Mac. No Supabase project.
+            </span>
           </label>
-          <label>
-            Service role key
+          <label className="radio-row">
             <input
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              value={form.supabaseServiceRoleKey}
-              onChange={(e) => update('supabaseServiceRoleKey', e.target.value)}
-              placeholder="service_role secret"
-              required
+              type="radio"
+              name="historyBackend"
+              checked={form.historyBackend === 'supabase'}
+              onChange={() => setBackend('supabase')}
             />
+            <span>
+              <strong>Supabase</strong> — optional remote Postgres if you already use it.
+            </span>
           </label>
-          <p className="field-hint">
-            Project Settings → API. Use the <strong>service_role</strong> secret (not the anon key).
-            Also run{' '}
-            <code>server/supabase/migrations/001_init.sql</code> once in the SQL editor.
-          </p>
+
+          {(showSupabase || form.historyBackend === 'supabase') && (
+            <>
+              <label>
+                Project URL
+                <input
+                  type="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={form.supabaseUrl ?? ''}
+                  onChange={(e) => update('supabaseUrl', e.target.value)}
+                  placeholder="https://xxxx.supabase.co"
+                  required={form.historyBackend === 'supabase'}
+                />
+              </label>
+              <label>
+                Service role key
+                <input
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={form.supabaseServiceRoleKey ?? ''}
+                  onChange={(e) => update('supabaseServiceRoleKey', e.target.value)}
+                  placeholder="service_role secret"
+                  required={form.historyBackend === 'supabase'}
+                />
+              </label>
+              <p className="field-hint">
+                Project Settings → API. Use the <strong>service_role</strong> secret (not the anon
+                key). Run <code>server/supabase/migrations/</code> 001–004 once in the SQL editor.
+              </p>
+            </>
+          )}
         </fieldset>
 
         {error && <div className="error-box login-error">{error}</div>}
