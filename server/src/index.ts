@@ -16,7 +16,7 @@ import {
 } from './credentialsService.js';
 import { EtoroApiError } from './errors.js';
 import { isSupabaseConfigured } from './supabase.js';
-import { getAggregateOverview } from './services/aggregate.js';
+import { getAggregateOverview, isDisplayCurrency } from './services/aggregate.js';
 import {
   getAbnOverview,
   getAbnPerformance,
@@ -463,7 +463,7 @@ app.get(
 );
 
 // ---------------------------------------------------------------------------
-// Cross-broker aggregation (EUR)
+// Cross-broker aggregation (EUR / USD FX view)
 // ---------------------------------------------------------------------------
 
 app.get(
@@ -474,7 +474,12 @@ app.get(
       res.status(400).json({ error: 'granularity must be daily, weekly, monthly or yearly' });
       return;
     }
-    res.json(await getAggregateOverview(g));
+    const currencyParam = String(req.query.currency ?? 'EUR').toUpperCase();
+    if (!isDisplayCurrency(currencyParam)) {
+      res.status(400).json({ error: 'currency must be EUR or USD' });
+      return;
+    }
+    res.json(await getAggregateOverview(g, currencyParam));
   }),
 );
 

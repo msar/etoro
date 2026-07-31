@@ -279,30 +279,34 @@ export interface AbnOverview {
 // Aggregate
 // ---------------------------------------------------------------------------
 
+export type DisplayCurrency = 'EUR' | 'USD';
+
 export interface BrokerCard {
   broker: string;
   displayName: string;
   currency: string;
   accountId: string | null;
   valueNative: number | null;
-  valueEur: number | null;
+  /** Value in the aggregate display currency */
+  value: number | null;
   gainPct: number | null;
   available: boolean;
   href: string;
   placeholder?: boolean;
   kind?: 'equity' | 'realized';
   realizedGainNative?: number | null;
-  realizedGainEur?: number | null;
+  /** Realized G/L in the aggregate display currency */
+  realizedGain?: number | null;
 }
 
 export interface AggregateOverview {
-  currency: 'EUR';
-  totalValueEur: number;
+  currency: DisplayCurrency;
+  totalValue: number;
   brokers: BrokerCard[];
   enabledBrokers: BrokerId[];
   equity: {
     date: string;
-    totalEur: number;
+    total: number;
     byBroker: Record<string, number>;
   }[];
   performance: PerformanceSeries;
@@ -624,8 +628,10 @@ export const api = {
     postJson<CredentialsStatus & { ok: boolean }>('/api/kraken/credentials', creds),
   clearKrakenCredentials: () =>
     del<CredentialsStatus & { ok: boolean }>('/api/kraken/credentials'),
-  aggregate: (granularity: Granularity = 'monthly') =>
-    get<AggregateOverview>(`/api/aggregate?granularity=${granularity}`),
+  aggregate: (granularity: Granularity = 'monthly', currency: DisplayCurrency = 'EUR') =>
+    get<AggregateOverview>(
+      `/api/aggregate?granularity=${granularity}&currency=${currency}`,
+    ),
 };
 
 export const fmtMoney = (v: number, currency = 'USD'): string => {

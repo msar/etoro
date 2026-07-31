@@ -1,5 +1,5 @@
 /**
- * Cross-broker aggregation in EUR.
+ * Cross-broker aggregation in a selectable display currency (EUR or USD).
  */
 
 import { getBootstrap } from '../bootstrap.js';
@@ -17,13 +17,22 @@ import {
 } from './performance.js';
 import type { BrokerId } from '../brokers.js';
 
+export type DisplayCurrency = 'EUR' | 'USD';
+
+export const DISPLAY_CURRENCIES: DisplayCurrency[] = ['EUR', 'USD'];
+
+export function isDisplayCurrency(v: string): v is DisplayCurrency {
+  return DISPLAY_CURRENCIES.includes(v as DisplayCurrency);
+}
+
 export interface BrokerCard {
   broker: string;
   displayName: string;
   currency: string;
   accountId: string | null;
   valueNative: number | null;
-  valueEur: number | null;
+  /** Value in the aggregate display currency */
+  value: number | null;
   gainPct: number | null;
   available: boolean;
   href: string;
@@ -31,17 +40,18 @@ export interface BrokerCard {
   /** equity = portfolio MV; realized = closed G&L only (no MV) */
   kind?: 'equity' | 'realized';
   realizedGainNative?: number | null;
-  realizedGainEur?: number | null;
+  /** Realized G/L in the aggregate display currency */
+  realizedGain?: number | null;
 }
 
 export interface AggregateOverview {
-  currency: 'EUR';
-  totalValueEur: number;
+  currency: DisplayCurrency;
+  totalValue: number;
   brokers: BrokerCard[];
   enabledBrokers: BrokerId[];
   equity: {
     date: string;
-    totalEur: number;
+    total: number;
     byBroker: Record<string, number>;
   }[];
   performance: PerformanceSeries;
@@ -69,7 +79,19 @@ function forwardFill(
   return out;
 }
 
-async function etoroSeriesEur(): Promise<{
+async function seriesToDisplay(
+  points: { date: string; value: number }[],
+  fromCurrency: string,
+  display: DisplayCurrency,
+): Promise<{ date: string; value: number }[]> {
+  if (!points.length) return [];
+  const converted = await convertSeries(points, fromCurrency, display);
+  return converted.map((p) => ({ date: p.date, value: p.value }));
+}
+
+async function etoroSeries(
+  display: DisplayCurrency,
+): Promise<{
   card: BrokerCard;
   points: { date: string; value: number }[];
   performance: PerformanceSeries | null;
@@ -81,7 +103,7 @@ async function etoroSeriesEur(): Promise<{
     currency: 'USD',
     accountId: null,
     valueNative: null,
-    valueEur: null,
+    value: null,
     gainPct: null,
     available: false,
     href: '/etoro',
@@ -94,10 +116,11 @@ async function etoroSeriesEur(): Promise<{
   try {
     const boot = await getBootstrap();
     const equity = await getEquityHistory(boot.environment);
+    const nativeCcy = equity.displayCurrency || 'USD';
     const nativePoints = equity.points.map((p) => ({ date: p.date, value: p.total }));
-    const converted = await convertSeries(nativePoints, equity.displayCurrency || 'USD', 'EUR');
+    const converted = await seriesToDisplay(nativePoints, nativeCcy, display);
     const latestNative = nativePoints[nativePoints.length - 1]?.value ?? null;
-    const latestEur = converted[converted.length - 1]?.value ?? null;
+    const latest = converted[converted.length - 1]?.value ?? null;
 
     let gainPct: number | null = null;
     let performance: PerformanceSeries | null = null;
@@ -116,16 +139,16 @@ async function etoroSeriesEur(): Promise<{
       card: {
         broker: 'etoro',
         displayName: boot.username ? `eToro (@${boot.username})` : 'eToro',
-        currency: equity.displayCurrency || 'USD',
+        currency: nativeCcy,
         accountId: boot.gcid != null ? String(boot.gcid) : null,
         valueNative: latestNative,
-        valueEur: latestEur,
+        value: latest,
         gainPct,
         available: nativePoints.length > 0,
         href: '/etoro',
         kind: 'equity',
       },
-      points: converted.map((p) => ({ date: p.date, value: p.value })),
+      points: converted,
       performance,
     };
   } catch (err) {
@@ -134,7 +157,9 @@ async function etoroSeriesEur(): Promise<{
   }
 }
 
-async function abnSeriesEur(): Promise<{
+async function abnSeries(
+  display: DisplayCurrency,
+): Promise<{
   card: BrokerCard;
   points: { date: string; value: number }[];
   performance: PerformanceSeries | null;
@@ -145,7 +170,7 @@ async function abnSeriesEur(): Promise<{
     currency: 'EUR',
     accountId: null,
     valueNative: null,
-    valueEur: null,
+    value: null,
     gainPct: null,
     available: false,
     href: '/abnamro',
@@ -156,7 +181,11 @@ async function abnSeriesEur(): Promise<{
     if (!overview.available) {
       return { card: emptyCard, points: [], performance: null };
     }
-    const points = overview.snapshots.map((s) => ({ date: s.date, value: s.total }));
+    const nativePoints = overview.snapshots.map((s) => ({ date: s.date, value: s.total }));
+    const points = await seriesToDisplay(nativePoints, 'EUR', display);
+    const latestNative = overview.currentValue;
+    const latest = points[points.length - 1]?.value ?? null;
+
     let performance: PerformanceSeries | null = null;
     try {
       performance = await getAbnPerformance('monthly');
@@ -169,8 +198,8 @@ async function abnSeriesEur(): Promise<{
         displayName: 'ABN AMRO Guided Investing',
         currency: 'EUR',
         accountId: overview.accountId,
-        valueNative: overview.currentValue,
-        valueEur: overview.currentValue,
+        valueNative: latestNative,
+        value: latest,
         gainPct: overview.allTimeGainPct,
         available: true,
         href: '/abnamro',
@@ -185,7 +214,9 @@ async function abnSeriesEur(): Promise<{
   }
 }
 
-async function krakenSeriesEur(): Promise<{
+async function krakenSeries(
+  display: DisplayCurrency,
+): Promise<{
   card: BrokerCard;
   points: { date: string; value: number }[];
   performance: PerformanceSeries | null;
@@ -197,7 +228,7 @@ async function krakenSeriesEur(): Promise<{
     currency: 'USD',
     accountId: null,
     valueNative: null,
-    valueEur: null,
+    value: null,
     gainPct: null,
     available: false,
     href: '/kraken',
@@ -211,18 +242,14 @@ async function krakenSeriesEur(): Promise<{
 
     let points: { date: string; value: number }[] = [];
     if (stats.snapshots.length) {
-      const from = stats.snapshots[0].date;
-      const to = stats.snapshots[stats.snapshots.length - 1].date;
-      try {
-        const rates = await ensureFxRates('USD', 'EUR', from, to);
-        points = stats.snapshots.map((s) => ({
-          date: s.date,
-          value: s.total * (rates.get(s.date) ?? 1),
-        }));
-      } catch {
-        points = stats.snapshots.map((s) => ({ date: s.date, value: s.total }));
-      }
+      points = await seriesToDisplay(
+        stats.snapshots.map((s) => ({ date: s.date, value: s.total })),
+        'USD',
+        display,
+      );
     }
+
+    let value: number | null = display === 'EUR' ? stats.valueEur : stats.valueNative;
 
     let performance: PerformanceSeries | null = null;
     try {
@@ -238,7 +265,7 @@ async function krakenSeriesEur(): Promise<{
         currency: 'USD',
         accountId: stats.accountId,
         valueNative: stats.valueNative,
-        valueEur: stats.valueEur,
+        value,
         gainPct: stats.gainPct,
         available: true,
         href: '/kraken',
@@ -255,14 +282,15 @@ async function krakenSeriesEur(): Promise<{
 }
 
 /**
- * Combined TWR across brokers using daily (or available) EUR equity + net flows.
+ * Combined TWR across brokers using equity + net flows in the display currency.
  * For sparse brokers we forward-fill value; net flows only on statement/snapshot days.
  */
 async function combinedPerformance(
   brokerSeries: { broker: string; currency: string; points: { date: string; total: number; netFlow: number }[] }[],
   granularity: Granularity,
+  display: DisplayCurrency,
 ): Promise<PerformanceSeries> {
-  const eurSeries: { date: string; total: number; netFlow: number }[][] = [];
+  const convertedSeries: { date: string; total: number; netFlow: number }[][] = [];
 
   for (const series of brokerSeries) {
     if (!series.points.length) continue;
@@ -270,14 +298,14 @@ async function combinedPerformance(
     const from = dates[0];
     const to = dates[dates.length - 1];
     const rates =
-      series.currency.toUpperCase() === 'EUR'
+      series.currency.toUpperCase() === display
         ? null
-        : await ensureFxRates(series.currency, 'EUR', from, to);
+        : await ensureFxRates(series.currency, display, from, to);
 
-    eurSeries.push(
+    convertedSeries.push(
       series.points.map((p) => {
         const rate =
-          series.currency.toUpperCase() === 'EUR' ? 1 : (rates?.get(p.date) ?? 1);
+          series.currency.toUpperCase() === display ? 1 : (rates?.get(p.date) ?? 1);
         return {
           date: p.date,
           total: p.total * rate,
@@ -287,15 +315,15 @@ async function combinedPerformance(
     );
   }
 
-  if (!eurSeries.length) {
+  if (!convertedSeries.length) {
     return { granularity, points: [], totalGain: null, source: 'derived' };
   }
 
   const allDates = [
-    ...new Set(eurSeries.flatMap((s) => s.map((p) => p.date))),
+    ...new Set(convertedSeries.flatMap((s) => s.map((p) => p.date))),
   ].sort();
 
-  const filled = eurSeries.map((s) => {
+  const filled = convertedSeries.map((s) => {
     const totalMap = forwardFill(
       s.map((p) => ({ date: p.date, value: p.total })),
       allDates,
@@ -381,6 +409,7 @@ async function combinedPerformance(
 
 export async function getAggregateOverview(
   granularity: Granularity = 'monthly',
+  display: DisplayCurrency = 'EUR',
 ): Promise<AggregateOverview> {
   const brokersStatus = await getBrokersStatus();
   const enabled = new Set(brokersStatus.enabled);
@@ -392,14 +421,14 @@ export async function getAggregateOverview(
 
   const [etoro, abn, etradeStats, kraken] = await Promise.all([
     needEtoro
-      ? etoroSeriesEur()
+      ? etoroSeries(display)
       : Promise.resolve({
           card: null as BrokerCard | null,
           points: [] as { date: string; value: number }[],
           performance: null as PerformanceSeries | null,
         }),
     needAbn
-      ? abnSeriesEur()
+      ? abnSeries(display)
       : Promise.resolve({
           card: null as BrokerCard | null,
           points: [] as { date: string; value: number }[],
@@ -424,7 +453,7 @@ export async function getAggregateOverview(
         })
       : Promise.resolve(null),
     needKraken
-      ? krakenSeriesEur()
+      ? krakenSeries(display)
       : Promise.resolve({
           card: null as BrokerCard | null,
           points: [] as { date: string; value: number }[],
@@ -448,7 +477,10 @@ export async function getAggregateOverview(
             currency: 'USD',
             accountId: etradeStats.accountId,
             valueNative: etradeStats.valueNative,
-            valueEur: etradeStats.valueEur,
+            value:
+              display === 'EUR'
+                ? etradeStats.valueEur
+                : etradeStats.valueNative,
             gainPct: etradeStats.gainPct,
             available: true,
             href: '/etrade',
@@ -460,13 +492,19 @@ export async function getAggregateOverview(
             currency: 'USD',
             accountId: etradeStats.accountId,
             valueNative: null,
-            valueEur: null,
+            value: null,
             gainPct: etradeStats.returnOnCost,
             available: etradeStats.available,
             href: '/etrade',
             kind: 'realized',
-            realizedGainNative: etradeStats.available ? etradeStats.totalAdjustedGainUsd : null,
-            realizedGainEur: etradeStats.available ? etradeStats.totalAdjustedGainEur : null,
+            realizedGainNative: etradeStats.available
+              ? etradeStats.totalAdjustedGainUsd
+              : null,
+            realizedGain: etradeStats.available
+              ? display === 'EUR'
+                ? etradeStats.totalAdjustedGainEur
+                : etradeStats.totalAdjustedGainUsd
+              : null,
           };
     brokers.push(etradeCard);
   }
@@ -476,26 +514,20 @@ export async function getAggregateOverview(
   const etradeCard = brokers.find((b) => b.broker === 'etrade');
   const etradeEquityPoints =
     etradeStats && etradeStats.kind === 'equity' && etradeStats.snapshots.length
-      ? await (async () => {
-          const from = etradeStats.snapshots[0].date;
-          const to = etradeStats.snapshots[etradeStats.snapshots.length - 1].date;
-          try {
-            const rates = await ensureFxRates('USD', 'EUR', from, to);
-            return etradeStats.snapshots.map((s) => ({
-              date: s.date,
-              value: s.total * (rates.get(s.date) ?? 1),
-            }));
-          } catch (err) {
-            console.warn('E*TRADE equity FX series failed:', (err as Error).message);
-            return etradeStats.snapshots.map((s) => ({ date: s.date, value: s.total }));
-          }
-        })()
+      ? await seriesToDisplay(
+          etradeStats.snapshots.map((s) => ({ date: s.date, value: s.total })),
+          'USD',
+          display,
+        ).catch((err) => {
+          console.warn('E*TRADE equity FX series failed:', (err as Error).message);
+          return etradeStats.snapshots.map((s) => ({ date: s.date, value: s.total }));
+        })
       : [];
 
-  const totalValueEur = brokers.reduce((sum, b) => {
+  const totalValue = brokers.reduce((sum, b) => {
     if (!b.available) return sum;
     if (b.kind === 'realized') return sum;
-    return sum + (b.valueEur ?? 0);
+    return sum + (b.value ?? 0);
   }, 0);
 
   const allDates = [
@@ -520,8 +552,8 @@ export async function getAggregateOverview(
       byBroker.etrade = etradeFilled.get(date) ?? 0;
     }
     if (kraken.card?.available) byBroker.kraken = krakenFilled.get(date) ?? 0;
-    const totalEur = Object.values(byBroker).reduce((a, b) => a + b, 0);
-    return { date, totalEur, byBroker };
+    const total = Object.values(byBroker).reduce((a, b) => a + b, 0);
+    return { date, total, byBroker };
   });
 
   const brokerNative: {
@@ -585,11 +617,11 @@ export async function getAggregateOverview(
     });
   }
 
-  const performance = await combinedPerformance(brokerNative, granularity);
+  const performance = await combinedPerformance(brokerNative, granularity, display);
 
   return {
-    currency: 'EUR',
-    totalValueEur,
+    currency: display,
+    totalValue,
     brokers,
     enabledBrokers: brokersStatus.enabled,
     equity,

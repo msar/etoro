@@ -18,10 +18,12 @@ import {
   type BrokerId,
   type BrokerMeta,
   type BrokersStatus,
+  type DisplayCurrency,
   type Granularity,
 } from '../api';
 import { AppNav, notifyBrokersChanged } from '../components/AppNav';
 import { PerformanceChart } from '../components/PerformanceChart';
+import { Segmented } from '../components/Segmented';
 import { usePrivacy } from '../privacy';
 
 const BROKER_COLORS: Record<string, string> = {
@@ -32,9 +34,26 @@ const BROKER_COLORS: Record<string, string> = {
   etrade: '#ff5c72',
 };
 
+const FX_STORAGE_KEY = 'portfolio-fx-currency';
+const FX_OPTIONS: { value: DisplayCurrency; label: string }[] = [
+  { value: 'EUR', label: 'EUR' },
+  { value: 'USD', label: 'USD' },
+];
+
+function readStoredFx(): DisplayCurrency {
+  try {
+    const v = localStorage.getItem(FX_STORAGE_KEY);
+    if (v === 'EUR' || v === 'USD') return v;
+  } catch {
+    // ignore
+  }
+  return 'EUR';
+}
+
 export function OverviewPage() {
   usePrivacy();
   const navigate = useNavigate();
+  const [fxCurrency, setFxCurrency] = useState<DisplayCurrency>(readStoredFx);
   const [data, setData] = useState<AggregateOverview | null>(null);
   const [brokersStatus, setBrokersStatus] = useState<BrokersStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,11 +61,23 @@ export function OverviewPage() {
   const [adding, setAdding] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const setCurrency = useCallback((next: DisplayCurrency) => {
+    setFxCurrency(next);
+    try {
+      localStorage.setItem(FX_STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [agg, brokers] = await Promise.all([api.aggregate('monthly'), api.brokers()]);
+      const [agg, brokers] = await Promise.all([
+        api.aggregate('monthly', fxCurrency),
+        api.brokers(),
+      ]);
       setData(agg);
       setBrokersStatus(brokers);
     } catch (err) {
@@ -54,16 +85,19 @@ export function OverviewPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fxCurrency]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  const perfFetcher = useCallback(async (granularity: Granularity) => {
-    const agg = await api.aggregate(granularity);
-    return agg.performance;
-  }, []);
+  const perfFetcher = useCallback(
+    async (granularity: Granularity) => {
+      const agg = await api.aggregate(granularity, fxCurrency);
+      return agg.performance;
+    },
+    [fxCurrency],
+  );
 
   const chartData = useMemo(() => {
     if (!data?.equity.length) return [];
@@ -74,7 +108,7 @@ export function OverviewPage() {
         year: '2-digit',
         timeZone: 'UTC',
       }),
-      total: e.totalEur,
+      total: e.total,
       ...e.byBroker,
     }));
   }, [data]);
@@ -94,6 +128,8 @@ export function OverviewPage() {
     const enabled = new Set(brokersStatus.enabled);
     return brokersStatus.catalog.filter((b) => !enabled.has(b.id));
   }, [brokersStatus]);
+
+  const ccy = data?.currency ?? fxCurrency;
 
   async function onAdd(meta: BrokerMeta) {
     setBusyId(meta.id);
@@ -136,9 +172,10 @@ export function OverviewPage() {
         <div>
           <h1>Portfolio Overview</h1>
           <div className="sub">
-            Aggregated net worth across brokers · displayed in EUR (ECB FX rates)
+            Aggregated net worth across brokers · ECB FX rates
           </div>
         </div>
+        <Segmented options={FX_OPTIONS} value={fxCurrency} onChange={setCurrency} />
       </header>
 
       {loading ? (
@@ -156,7 +193,7 @@ export function OverviewPage() {
             <div className="cards">
               <div className="card highlight">
                 <div className="label">Total net worth</div>
-                <div className="value">{fmtMoney(data.totalValueEur, 'EUR')}</div>
+                <div className="value">{fmtMoney(data.totalValue, ccy)}</div>
                 <div className="hint">
                   {activeBrokers.length} broker{activeBrokers.length === 1 ? '' : 's'} connected
                 </div>
@@ -166,19 +203,19 @@ export function OverviewPage() {
                   <div className="label">{b.displayName}</div>
                   <div className="value">
                     {b.kind === 'realized'
-                      ? b.realizedGainEur != null
-                        ? fmtMoney(b.realizedGainEur, 'EUR')
+                      ? b.realizedGain != null
+                        ? fmtMoney(b.realizedGain, ccy)
                         : b.realizedGainNative != null
                           ? fmtMoney(b.realizedGainNative, b.currency)
                           : '—'
-                      : b.valueEur != null
-                        ? fmtMoney(b.valueEur, 'EUR')
+                      : b.value != null
+                        ? fmtMoney(b.value, ccy)
                         : '—'}
                   </div>
                   <div className="hint">
                     {b.kind === 'realized'
-                      ? `Realized G/L${b.realizedGainNative != null && b.currency !== 'EUR' ? ` · ${fmtMoney(b.realizedGainNative, b.currency)}` : ''}`
-                      : b.valueNative != null && b.currency !== 'EUR'
+                      ? `Realized G/L${b.realizedGainNative != null && b.currency !== ccy ? ` · ${fmtMoney(b.realizedGainNative, b.currency)}` : ''}`
+                      : b.valueNative != null && b.currency !== ccy
                         ? `${fmtMoney(b.valueNative, b.currency)} native`
                         : b.currency}
                     {b.gainPct != null ? ` · ${fmtPct(b.gainPct)}` : ''}
@@ -256,13 +293,13 @@ export function OverviewPage() {
                         <>
                           <div className="broker-value">
                             {b.kind === 'realized'
-                              ? b.realizedGainEur != null
-                                ? fmtMoney(b.realizedGainEur, 'EUR')
+                              ? b.realizedGain != null
+                                ? fmtMoney(b.realizedGain, ccy)
                                 : b.realizedGainNative != null
                                   ? fmtMoney(b.realizedGainNative, b.currency)
                                   : '—'
-                              : b.valueEur != null
-                                ? fmtMoney(b.valueEur, 'EUR')
+                              : b.value != null
+                                ? fmtMoney(b.value, ccy)
                                 : '—'}
                           </div>
                           <div className="broker-meta">
@@ -310,7 +347,8 @@ export function OverviewPage() {
                 <div>
                   <h2>Net worth over time</h2>
                   <div className="desc">
-                    EUR · statement brokers forward-filled between snapshots; live APIs where available
+                    {ccy} · statement brokers forward-filled between snapshots; live APIs where
+                    available
                   </div>
                 </div>
               </div>
@@ -325,7 +363,7 @@ export function OverviewPage() {
                     minTickGap={40}
                   />
                   <YAxis
-                    tickFormatter={(v: number) => fmtMoney(v, 'EUR')}
+                    tickFormatter={(v: number) => fmtMoney(v, ccy)}
                     tick={{ fill: '#8698ad', fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
@@ -340,7 +378,7 @@ export function OverviewPage() {
                           <div className="t-date">{p.date}</div>
                           <div className="t-row">
                             <span className="t-key">Total</span>
-                            <span>{fmtMoney(p.total, 'EUR')}</span>
+                            <span>{fmtMoney(p.total, ccy)}</span>
                           </div>
                           {equityBrokers.map((b) => {
                             const row = p as Record<string, unknown>;
@@ -349,7 +387,7 @@ export function OverviewPage() {
                             return (
                               <div className="t-row" key={b.broker}>
                                 <span className="t-key">{b.displayName}</span>
-                                <span>{fmtMoney(v, 'EUR')}</span>
+                                <span>{fmtMoney(v, ccy)}</span>
                               </div>
                             );
                           })}
@@ -378,9 +416,9 @@ export function OverviewPage() {
           {data && (
             <PerformanceChart
               title="Combined performance"
-              description="Deposit-adjusted time-weighted return across all connected brokers (EUR)."
+              description={`Deposit-adjusted time-weighted return across all connected brokers (${ccy}).`}
               fetcher={perfFetcher}
-              derivedNote="Combined TWR from each broker’s equity series converted to EUR. Sparse brokers are forward-filled between snapshots."
+              derivedNote={`Combined TWR from each broker’s equity series converted to ${ccy}. Sparse brokers are forward-filled between snapshots.`}
             />
           )}
         </>
