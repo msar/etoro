@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, fmtMoney, fmtPct, type AccountStats } from '../api';
+import { usePrivacy } from '../privacy';
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -37,6 +38,7 @@ function Stat({
 }
 
 export function StatsPanel() {
+  usePrivacy();
   const [stats, setStats] = useState<AccountStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 

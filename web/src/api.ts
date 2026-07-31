@@ -1,3 +1,5 @@
+import { isPrivacyMasked } from './privacy';
+
 export interface SyncStatus {
   configured: boolean;
   schemaReady: boolean;
@@ -205,6 +207,103 @@ export interface IncomeReport {
   topDividendPayers: { name: string; total: number }[];
 }
 
+// ---------------------------------------------------------------------------
+// ABN AMRO
+// ---------------------------------------------------------------------------
+
+export interface AbnImportFileResult {
+  fileName: string;
+  status: 'imported' | 'duplicate' | 'replaced' | 'error';
+  statementDate?: string;
+  totalBalance?: number;
+  netFlow?: number;
+  holdings?: number;
+  error?: string;
+}
+
+export interface AbnImportResult {
+  accountId: string;
+  portfolioNumber: string;
+  results: AbnImportFileResult[];
+  imported: number;
+  duplicates: number;
+  errors: number;
+}
+
+export interface AbnOverview {
+  available: boolean;
+  reason?: string;
+  accountId: string | null;
+  portfolioNumber: string | null;
+  currency: 'EUR';
+  currentValue: number | null;
+  statementDate: string | null;
+  totalDeposits: number;
+  totalWithdrawals: number;
+  allTimeGain: number | null;
+  allTimeGainPct: number | null;
+  totalServiceCosts: number;
+  totalProductCosts: number;
+  snapshots: {
+    date: string;
+    total: number;
+    netFlow: number;
+    cumulativeNetDeposits: number;
+  }[];
+  latestHoldings: {
+    isin: string;
+    name: string | null;
+    assetClass: string;
+    quantity: number;
+    price: number;
+    value: number;
+  }[];
+  allocation: { assetClass: string; value: number; pct: number }[];
+  costs: {
+    statementDate: string;
+    serviceCosts: number;
+    productCosts: number;
+    periodStart: string | null;
+    periodEnd: string | null;
+  }[];
+  imports: {
+    fileName: string | null;
+    statementDate: string;
+    totalBalance: number | null;
+    importedAt: string;
+    fileHash: string;
+  }[];
+}
+
+// ---------------------------------------------------------------------------
+// Aggregate
+// ---------------------------------------------------------------------------
+
+export interface BrokerCard {
+  broker: string;
+  displayName: string;
+  currency: string;
+  accountId: string | null;
+  valueNative: number | null;
+  valueEur: number | null;
+  gainPct: number | null;
+  available: boolean;
+  href: string;
+  placeholder?: boolean;
+}
+
+export interface AggregateOverview {
+  currency: 'EUR';
+  totalValueEur: number;
+  brokers: BrokerCard[];
+  equity: {
+    date: string;
+    totalEur: number;
+    byBroker: Record<string, number>;
+  }[];
+  performance: PerformanceSeries;
+}
+
 export interface CredentialsInput {
   etoroApiKey: string;
   etoroUserKey: string;
@@ -267,6 +366,21 @@ async function del<T>(path: string): Promise<T> {
   return res.json();
 }
 
+async function postForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(path, { method: 'POST', body: form });
+  if (!res.ok) {
+    let message = `Request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      // keep default
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
 export const api = {
   credentialsStatus: () => get<CredentialsStatus>('/api/credentials/status'),
   saveCredentials: (creds: CredentialsInput) =>
@@ -286,14 +400,34 @@ export const api = {
   stats: () => get<AccountStats>('/api/stats'),
   instrumentPerformance: () => get<InstrumentPerformanceReport>('/api/instrument-performance'),
   income: () => get<IncomeReport>('/api/income'),
+  abnOverview: () => get<AbnOverview>('/api/abnamro/overview'),
+  abnPerformance: (granularity: Granularity, from?: string, to?: string) =>
+    get<PerformanceSeries>(
+      `/api/abnamro/performance?granularity=${granularity}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`,
+    ),
+  abnImport: (files: File[]) => {
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    return postForm<AbnImportResult>('/api/abnamro/import', form);
+  },
+  aggregate: (granularity: Granularity = 'monthly') =>
+    get<AggregateOverview>(`/api/aggregate?granularity=${granularity}`),
 };
 
-export const fmtMoney = (v: number, currency = 'USD'): string =>
-  new Intl.NumberFormat('en-US', {
+export const fmtMoney = (v: number, currency = 'USD'): string => {
+  if (isPrivacyMasked()) return '••••';
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
     maximumFractionDigits: Math.abs(v) >= 1000 ? 0 : 2,
   }).format(v);
+};
+
+/** Absolute non-currency figures (units, quantities, prices as plain numbers). */
+export const fmtAbs = (v: number, digits = 2): string => {
+  if (isPrivacyMasked()) return '••••';
+  return v.toFixed(digits);
+};
 
 export const fmtPct = (fraction: number, digits = 2): string =>
   `${fraction >= 0 ? '+' : ''}${(fraction * 100).toFixed(digits)}%`;

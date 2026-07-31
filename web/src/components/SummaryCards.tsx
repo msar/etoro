@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, fmtMoney, fmtPct, type EquityHistory, type PerformanceSeries, type PortfolioSummary } from '../api';
+import { usePrivacy } from '../privacy';
 
 export function SummaryCards() {
+  usePrivacy(); // re-render when amounts are masked
   const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
   const [equity, setEquity] = useState<EquityHistory | null>(null);
   const [yearly, setYearly] = useState<PerformanceSeries | null>(null);

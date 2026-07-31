@@ -10,14 +10,63 @@ export interface AccountRow {
   created_at?: string;
 }
 
+export interface BrokerAccountRow {
+  id: string;
+  broker: string;
+  display_name: string | null;
+  currency: string;
+  external_ref: string | null;
+  last_synced_at: string | null;
+  created_at?: string;
+}
+
 export interface BalanceSnapshotRow {
-  gcid: number;
+  /** eToro gcid when broker is etoro; null for statement-based brokers */
+  gcid: number | null;
+  account_id: string;
   date: string;
   cash: number;
   invested: number;
   pnl: number;
   total: number;
   net_flow: number;
+}
+
+export interface StatementHoldingRow {
+  account_id: string;
+  date: string;
+  isin: string;
+  name: string | null;
+  asset_class: string;
+  quantity: number;
+  price: number;
+  value: number;
+}
+
+export interface StatementImportRow {
+  id?: number;
+  account_id: string;
+  broker: string;
+  file_hash: string;
+  file_name: string | null;
+  statement_date: string;
+  total_balance: number | null;
+  net_flow: number | null;
+  service_costs: number | null;
+  product_costs: number | null;
+  realized_result: number | null;
+  unrealized_result: number | null;
+  unrealized_result_pct: number | null;
+  period_start: string | null;
+  period_end: string | null;
+  imported_at?: string;
+}
+
+export interface FxRateRow {
+  date: string;
+  base: string;
+  quote: string;
+  rate: number;
 }
 
 export interface ClosedTradeRow {

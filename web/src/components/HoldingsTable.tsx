@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, fmtMoney, fmtPct, type PortfolioSummary, type Trade } from '../api';
+import { api, fmtAbs, fmtMoney, fmtPct, type PortfolioSummary, type Trade } from '../api';
+import { usePrivacy } from '../privacy';
 
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -92,6 +93,7 @@ function Drilldown({
 }
 
 export function HoldingsTable() {
+  usePrivacy();
   const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -210,8 +212,8 @@ export function HoldingsTable() {
                     <td className={h.pnlPercent >= 0 ? 'pos' : 'neg'}>
                       {fmtPct(h.pnlPercent / 100)}
                     </td>
-                    <td>{h.netUnits.toFixed(4)}</td>
-                    <td>×{h.avgLeverage.toFixed(1)}</td>
+                    <td>{fmtAbs(h.netUnits, 4)}</td>
+                    <td>×{fmtAbs(h.avgLeverage, 1)}</td>
                     {hasEquityHoldings && <td>{fmtMoney(h.feesNetOfDividends, currency)}</td>}
                   </tr>
                 ))}

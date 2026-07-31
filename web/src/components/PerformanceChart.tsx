@@ -106,7 +106,18 @@ function PerfTooltip({
   );
 }
 
-export function PerformanceChart() {
+export function PerformanceChart({
+  title = 'Performance',
+  description,
+  fetcher,
+  derivedNote,
+}: {
+  title?: string;
+  description?: string;
+  /** Override data source (defaults to eToro `/api/performance`). */
+  fetcher?: (granularity: Granularity, from?: string) => Promise<PerformanceSeries>;
+  derivedNote?: string;
+} = {}) {
   const [granularity, setGranularity] = useState<Granularity>('monthly');
   const [mode, setMode] = useState<Mode>('cumulative');
   const [range, setRange] = useState<Range>('ALL');
@@ -118,10 +129,8 @@ export function PerformanceChart() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    // Pass the window start so the server can pick the deepest source that
-    // covers it (official eToro series vs. stored-history derivation).
-    api
-      .performance(granularity, rangeStart(range) ?? undefined)
+    const load = fetcher ?? ((g: Granularity, from?: string) => api.performance(g, from));
+    load(granularity, rangeStart(range) ?? undefined)
       .then((s) => {
         if (!cancelled) setSeries(s);
       })
@@ -134,7 +143,7 @@ export function PerformanceChart() {
     return () => {
       cancelled = true;
     };
-  }, [granularity, range]);
+  }, [granularity, range, fetcher]);
 
   const data: ChartPoint[] = useMemo(() => {
     if (!series) return [];
@@ -156,15 +165,17 @@ export function PerformanceChart() {
 
   const windowGain = data.length ? data[data.length - 1].cumulativeGain : null;
   const derived = series?.source === 'derived';
+  const desc =
+    description ??
+    'Deposit-adjusted gain (eToro methodology) — adding money is an increase of investment, not a gain.';
 
   return (
     <section className="panel">
       <div className="panel-header">
         <div>
-          <h2>Performance</h2>
+          <h2>{title}</h2>
           <div className="desc">
-            Deposit-adjusted gain (eToro methodology) — adding money is an increase of investment,
-            not a gain.
+            {desc}
             {windowGain !== null && (
               <>
                 {' '}
@@ -271,8 +282,8 @@ export function PerformanceChart() {
       )}
       {derived && !loading && !error && (
         <div className="chart-note">
-          Computed from stored daily balance snapshots (time-weighted, deposits excluded from
-          gains) — covers imported statement history beyond eToro&apos;s 12-month API window.
+          {derivedNote ??
+            'Computed from stored daily balance snapshots (time-weighted, deposits excluded from gains) — covers imported statement history beyond eToro\'s 12-month API window.'}
         </div>
       )}
     </section>

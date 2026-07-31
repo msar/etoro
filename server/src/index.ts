@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { type Request, type Response } from 'express';
+import multer from 'multer';
 import { getBootstrap } from './bootstrap.js';
 import {
   configureCredentials,
@@ -9,6 +10,12 @@ import {
 } from './credentialsService.js';
 import { EtoroApiError } from './errors.js';
 import { isSupabaseConfigured } from './supabase.js';
+import { getAggregateOverview } from './services/aggregate.js';
+import {
+  getAbnOverview,
+  getAbnPerformance,
+  importAbnStatements,
+} from './services/abnamro.js';
 import { getAllocationHistory } from './services/allocation.js';
 import { getEquityHistory } from './services/balances.js';
 import { getBestPerformance, type Granularity } from './services/performance.js';
@@ -21,6 +28,21 @@ import { earliestStoredTradeDate, getTrades } from './services/trades.js';
 
 const app = express();
 app.use(express.json({ limit: '64kb' }));
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024, files: 30 },
+  fileFilter: (_req, file, cb) => {
+    if (
+      file.mimetype === 'application/pdf' ||
+      file.originalname.toLowerCase().endsWith('.pdf')
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are accepted'));
+    }
+  },
+});
 
 const PORT = Number(process.env.PORT ?? 4000);
 
@@ -205,8 +227,63 @@ app.get(
   }),
 );
 
+// ---------------------------------------------------------------------------
+// ABN AMRO Guided Investing
+// ---------------------------------------------------------------------------
+
+app.post(
+  '/api/abnamro/import',
+  upload.array('files', 30),
+  handle(async (req, res) => {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) {
+      res.status(400).json({ error: 'Upload one or more PDF portfolio summaries' });
+      return;
+    }
+    const result = await importAbnStatements(
+      files.map((f) => ({ buffer: f.buffer, fileName: f.originalname })),
+    );
+    res.json(result);
+  }),
+);
+
+app.get(
+  '/api/abnamro/overview',
+  handle(async (_req, res) => {
+    res.json(await getAbnOverview());
+  }),
+);
+
+app.get(
+  '/api/abnamro/performance',
+  handle(async (req, res) => {
+    const g = (req.query.granularity as Granularity) ?? 'monthly';
+    if (!GRANULARITIES.includes(g)) {
+      res.status(400).json({ error: 'granularity must be daily, weekly, monthly or yearly' });
+      return;
+    }
+    res.json(await getAbnPerformance(g, dateParam(req, 'from'), dateParam(req, 'to')));
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Cross-broker aggregation (EUR)
+// ---------------------------------------------------------------------------
+
+app.get(
+  '/api/aggregate',
+  handle(async (req, res) => {
+    const g = (req.query.granularity as Granularity) ?? 'monthly';
+    if (!GRANULARITIES.includes(g)) {
+      res.status(400).json({ error: 'granularity must be daily, weekly, monthly or yearly' });
+      return;
+    }
+    res.json(await getAggregateOverview(g));
+  }),
+);
+
 app.listen(PORT, () => {
-  console.log(`eToro portfolio server listening on http://localhost:${PORT}`);
+  console.log(`Portfolio server listening on http://localhost:${PORT}`);
   const status = getCredentialsStatus();
   if (!status.configured) {
     console.log('No credentials yet — open the web app and complete the login screen.');
@@ -231,7 +308,7 @@ app.listen(PORT, () => {
       )
       .catch((err) =>
         console.warn(
-          'Startup sync failed (run server/supabase/migrations/001_init.sql in the Supabase SQL editor if tables are missing):',
+          'Startup sync failed (run server/supabase/migrations/001_init.sql and 003_multi_broker.sql in the Supabase SQL editor if tables are missing):',
           err.message,
         ),
       );

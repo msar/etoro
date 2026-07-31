@@ -1,6 +1,6 @@
-# eToro Portfolio Evolution
+# Portfolio Evolution
 
-Analyze your eToro portfolio over days, weeks, months, and years — deposit-adjusted performance, equity evolution, and holdings. Runs entirely on your machine.
+Multi-broker portfolio tracker — start with **eToro** (live API) and **ABN AMRO Guided Investing** (PDF statements), with an aggregated Overview in EUR. Runs entirely on your machine.
 
 ## Quick start
 
@@ -13,7 +13,13 @@ Analyze your eToro portfolio over days, weeks, months, and years — deposit-adj
 
 Then open **http://localhost:5173**.
 
-On first launch you will see a login screen. Paste:
+| Route | Page |
+|---|---|
+| `/` | Overview — net worth across brokers (EUR) |
+| `/etoro` | eToro dashboard (API sync) |
+| `/abnamro` | ABN AMRO Guided Investing (PDF upload) |
+
+On first visit to **eToro** you will see a login screen. Paste:
 
 | Field | Where to get it |
 |---|---|
@@ -26,9 +32,21 @@ Keys are validated, then saved only on this computer at `server/data/credentials
 
 ### One-time Supabase schema
 
-In the [Supabase SQL Editor](https://supabase.com/dashboard), run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (001, 002, …) — or print them with `npm run print-migration --workspace server`. Without this, the app still works from live eToro data but cannot grow history beyond eToro’s ~12-month API window.
+In the [Supabase SQL Editor](https://supabase.com/dashboard), run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (**001**, **002**, **003**) — or print them with `npm run print-migration --workspace server`. Migration **003** adds multi-broker tables required for ABN AMRO imports and the Overview page.
 
-### Backfill older history (Account Statement export)
+### ABN AMRO Guided Investing
+
+1. Apply migration 003 (above).
+2. Open **ABN AMRO** in the app and upload your quarterly *Portfolio summary* / *Portefeuille Overzicht* PDFs (drag-and-drop).
+3. Or bulk-import the sample folder:
+
+```bash
+npm run import:abnamro --workspace server
+# parser-only check (no DB write):
+npm run verify:abnamro --workspace server
+```
+
+### Backfill older eToro history (Account Statement export)
 
 eToro’s API only keeps ~12 months of balance history. To go further back:
 
@@ -51,10 +69,10 @@ Balances older than ~360 days come from **Realized Equity** + cash in Account Ac
 
 ## What you get
 
-- Performance: daily / weekly / monthly / yearly (deposit-adjusted)
-- Equity evolution with cumulative net deposits separated from gains
-- Holdings table and closed-trade drill-down
-- Sync on every dashboard load into Supabase so history can grow past 12 months
+- **Overview**: combined net worth in EUR (ECB FX), per-broker cards, stacked equity chart, combined TWR
+- **eToro**: deposit-adjusted performance, equity, allocation, holdings, income
+- **ABN AMRO**: PDF import, quarterly value/performance, asset-class allocation, costs, import log
+- Placeholders for Revolut, Kraken, and E*TRADE on the Overview page
 
 ## Sharing / GitHub
 
@@ -75,7 +93,7 @@ git status   # should not list credentials.json or .env with secrets
 
 ## Reset credentials
 
-In the app header, click **Change credentials**, or delete `server/data/credentials.json` and restart.
+In the eToro page header, click **Change credentials**, or delete `server/data/credentials.json` and restart.
 
 ## Scripts
 

@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import { api, fmtMoney, type EquityHistory, type EquityPoint } from '../api';
+import { usePrivacy } from '../privacy';
 
 function fmtDate(date: string): string {
   return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-US', {
@@ -71,6 +72,7 @@ function EquityTooltip({
 }
 
 export function EquityChart() {
+  usePrivacy();
   const [history, setHistory] = useState<EquityHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
 

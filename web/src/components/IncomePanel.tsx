@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, fmtMoney, type IncomeReport } from '../api';
+import { usePrivacy } from '../privacy';
 
 export function IncomePanel() {
+  usePrivacy();
   const [report, setReport] = useState<IncomeReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 

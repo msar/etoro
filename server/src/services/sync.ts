@@ -211,9 +211,57 @@ export async function runSync(): Promise<SyncResult> {
       }
 
       const sb = getSupabase();
+      const accountId = String(gcid);
+      // Ensure broker_accounts row exists (migration 003); ignore if table missing.
+      {
+        const { error: baErr } = await sb.from('broker_accounts').upsert(
+          {
+            id: accountId,
+            broker: 'etoro',
+            display_name: boot.username ?? 'eToro',
+            currency: boot.displayCurrency || 'USD',
+            external_ref: accountId,
+            last_synced_at: new Date().toISOString(),
+          },
+          { onConflict: 'id' },
+        );
+        if (baErr && !/schema cache|Could not find the table/i.test(baErr.message)) {
+          console.warn('broker_accounts upsert skipped:', baErr.message);
+        }
+      }
+
       let balanceRowsUpserted = 0;
+      let useAccountId = true;
       for (const batch of chunk(points, 200)) {
-        const rows = batch.map((p) => ({
+        const withAccount = batch.map((p) => ({
+          gcid,
+          account_id: accountId,
+          date: p.date,
+          cash: p.cash,
+          invested: p.invested,
+          pnl: p.pnl,
+          total: p.total,
+          net_flow: p.netFlow,
+        }));
+        if (useAccountId) {
+          const { error } = await sb.from('balance_snapshots').upsert(withAccount, {
+            onConflict: 'account_id,date',
+          });
+          if (error) {
+            if (/account_id|schema cache|Could not find/i.test(error.message)) {
+              useAccountId = false;
+              console.warn(
+                'balance_snapshots.account_id unavailable — run migration 003. Falling back to gcid PK.',
+              );
+            } else {
+              throw new Error(`balance_snapshots upsert failed: ${error.message}`);
+            }
+          } else {
+            balanceRowsUpserted += withAccount.length;
+            continue;
+          }
+        }
+        const legacy = batch.map((p) => ({
           gcid,
           date: p.date,
           cash: p.cash,
@@ -222,11 +270,11 @@ export async function runSync(): Promise<SyncResult> {
           total: p.total,
           net_flow: p.netFlow,
         }));
-        const { error } = await sb.from('balance_snapshots').upsert(rows, {
+        const { error } = await sb.from('balance_snapshots').upsert(legacy, {
           onConflict: 'gcid,date',
         });
         if (error) throw new Error(`balance_snapshots upsert failed: ${error.message}`);
-        balanceRowsUpserted += rows.length;
+        balanceRowsUpserted += legacy.length;
       }
 
       // Trades: pull from earliest stored close or a wide window on seed.

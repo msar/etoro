@@ -207,12 +207,23 @@ async function main(): Promise<void> {
 
     if (!args.dryRun && balances.length) {
       const sb = getSupabase();
+      const accountId = String(gcid);
+      await sb.from('broker_accounts').upsert(
+        {
+          id: accountId,
+          broker: 'etoro',
+          display_name: 'eToro',
+          currency: 'USD',
+          external_ref: accountId,
+        },
+        { onConflict: 'id' },
+      );
       let n = 0;
       for (const batch of chunk(balances, 200)) {
-        const rows = batch.map((b) => ({ gcid, ...b }));
+        const rows = batch.map((b) => ({ gcid, account_id: accountId, ...b }));
         await withRetry(`balance upsert@${n}`, async () => {
           const { error } = await sb.from('balance_snapshots').upsert(rows, {
-            onConflict: 'gcid,date',
+            onConflict: 'account_id,date',
           });
           if (error) throw new Error(error.message);
         });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, fmtMoney, fmtPct, type InstrumentPerformanceReport } from '../api';
+import { usePrivacy } from '../privacy';
 
 type SortKey =
   | 'realizedProfit'
@@ -27,6 +28,7 @@ function fmtHold(days: number): string {
 }
 
 export function InstrumentPerformanceTable() {
+  usePrivacy();
   const [report, setReport] = useState<InstrumentPerformanceReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('realizedProfit');
