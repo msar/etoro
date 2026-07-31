@@ -864,6 +864,124 @@ a.broker-card:hover {
   cursor: default;
 }
 
+.broker-card-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.broker-remove {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.broker-remove:hover:not(:disabled) {
+  color: var(--red);
+}
+
+.broker-remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.broker-add-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.broker-add-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.broker-add-item:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(79, 157, 255, 0.06);
+}
+
+.broker-add-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.broker-add-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.broker-add-text strong {
+  font-size: 14px;
+}
+
+.broker-add-text .muted {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.broker-add-cta {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.broker-empty {
+  grid-column: 1 / -1;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 36px 20px;
+  color: var(--muted);
+}
+
+.empty-state .login-submit {
+  margin: 16px auto 0;
+  display: inline-block;
+  width: auto;
+  padding-inline: 20px;
+}
+
+.inline-form {
+  margin-bottom: 24px;
+  max-width: 520px;
+}
+
+.inline-form h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.ghost-btn.danger {
+  color: var(--red);
+  border-color: rgba(255, 92, 114, 0.35);
+}
+
+.ghost-btn.danger:hover {
+  border-color: var(--red);
+}
+
 .broker-name {
   display: flex;
   align-items: center;

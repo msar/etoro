@@ -299,12 +299,78 @@ export interface AggregateOverview {
   currency: 'EUR';
   totalValueEur: number;
   brokers: BrokerCard[];
+  enabledBrokers: BrokerId[];
   equity: {
     date: string;
     totalEur: number;
     byBroker: Record<string, number>;
   }[];
   performance: PerformanceSeries;
+}
+
+export type BrokerId = 'etoro' | 'abnamro' | 'etrade' | 'kraken';
+
+export interface BrokerMeta {
+  id: BrokerId;
+  displayName: string;
+  href: string;
+  currency: string;
+  connectMode: 'api' | 'upload';
+  description: string;
+}
+
+export interface BrokersStatus {
+  catalog: BrokerMeta[];
+  enabled: BrokerId[];
+  connected: BrokerId[];
+}
+
+export interface KrakenHolding {
+  asset: string;
+  displayAsset: string;
+  quantity: number;
+  priceUsd: number;
+  valueUsd: number;
+}
+
+export interface KrakenSyncResult {
+  accountId: string;
+  date: string;
+  equityUsd: number;
+  cashUsd: number;
+  investedUsd: number;
+  holdingsCount: number;
+  netFlow: number;
+}
+
+export interface KrakenOverview {
+  available: boolean;
+  reason?: string;
+  configured: boolean;
+  accountId: string | null;
+  currency: 'USD';
+  currentValue: number | null;
+  statementDate: string | null;
+  totalDeposits: number;
+  totalWithdrawals: number;
+  allTimeGain: number | null;
+  allTimeGainPct: number | null;
+  lastSyncedAt: string | null;
+  snapshots: {
+    date: string;
+    total: number;
+    netFlow: number;
+    cumulativeNetDeposits: number;
+  }[];
+  holdings: KrakenHolding[];
+  allocation: { asset: string; value: number; pct: number }[];
+}
+
+export interface KrakenCredentialsInput {
+  apiKey: string;
+  apiSecret: string;
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +496,7 @@ export interface CredentialsStatus {
   configured: boolean;
   etoroConfigured: boolean;
   supabaseConfigured: boolean;
+  krakenConfigured: boolean;
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -544,6 +611,19 @@ export const api = {
     for (const f of files) form.append('files', f);
     return postForm<EtradeImportResult>('/api/etrade/statements/import', form);
   },
+  brokers: () => get<BrokersStatus>('/api/brokers'),
+  enableBroker: (id: BrokerId) => postJson<BrokersStatus>(`/api/brokers/${id}/enable`),
+  disableBroker: (id: BrokerId) => del<BrokersStatus>(`/api/brokers/${id}/enable`),
+  krakenOverview: () => get<KrakenOverview>('/api/kraken/overview'),
+  krakenPerformance: (granularity: Granularity, from?: string, to?: string) =>
+    get<PerformanceSeries>(
+      `/api/kraken/performance?granularity=${granularity}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`,
+    ),
+  krakenSync: () => postJson<KrakenSyncResult>('/api/kraken/sync'),
+  saveKrakenCredentials: (creds: KrakenCredentialsInput) =>
+    postJson<CredentialsStatus & { ok: boolean }>('/api/kraken/credentials', creds),
+  clearKrakenCredentials: () =>
+    del<CredentialsStatus & { ok: boolean }>('/api/kraken/credentials'),
   aggregate: (granularity: Granularity = 'monthly') =>
     get<AggregateOverview>(`/api/aggregate?granularity=${granularity}`),
 };

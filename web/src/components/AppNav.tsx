@@ -1,27 +1,66 @@
-import { NavLink } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { api, type BrokerId, type BrokerMeta } from '../api';
 import { usePrivacy } from '../privacy';
 
-const LINKS = [
-  { to: '/', label: 'Overview', end: true },
-  { to: '/etoro', label: 'eToro' },
-  { to: '/abnamro', label: 'ABN AMRO' },
-  { to: '/etrade', label: 'E*TRADE' },
-];
+/** Fired after enable/disable so nav can refresh without a full reload. */
+export const BROKERS_CHANGED_EVENT = 'portfolio:brokers-changed';
+
+export function notifyBrokersChanged(): void {
+  window.dispatchEvent(new Event(BROKERS_CHANGED_EVENT));
+}
 
 export function AppNav() {
   const { masked, toggle } = usePrivacy();
+  const location = useLocation();
+  const [links, setLinks] = useState<{ id: BrokerId; label: string; to: string }[]>([]);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const onChange = () => setTick((t) => t + 1);
+    window.addEventListener(BROKERS_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(BROKERS_CHANGED_EVENT, onChange);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .brokers()
+      .then((status) => {
+        if (cancelled) return;
+        const byId = new Map<BrokerId, BrokerMeta>(status.catalog.map((c) => [c.id, c]));
+        setLinks(
+          status.enabled.map((id) => {
+            const meta = byId.get(id);
+            return {
+              id,
+              label: meta?.displayName ?? id,
+              to: meta?.href ?? `/${id}`,
+            };
+          }),
+        );
+      })
+      .catch(() => {
+        /* Overview still works without nav extras */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname, tick]);
 
   return (
     <div className="app-nav-row">
       <nav className="app-nav">
-        {LINKS.map((l) => (
+        <NavLink to="/" end className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
+          Overview
+        </NavLink>
+        {links.map((l) => (
           <NavLink
-            key={l.to}
+            key={l.id}
             to={l.to}
-            end={l.end}
             className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
           >
-            {l.label}
+            {l.label === 'ABN AMRO Guided Investing' ? 'ABN AMRO' : l.label}
           </NavLink>
         ))}
       </nav>

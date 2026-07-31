@@ -4,9 +4,15 @@ import multer from 'multer';
 import { getBootstrap } from './bootstrap.js';
 import {
   configureCredentials,
+  configureKrakenCredentials,
+  disableBroker,
+  disconnectKraken,
+  enableBroker,
+  getBrokersStatus,
   getCredentialsStatus,
   logoutCredentials,
   requireEtoroCredentials,
+  requireKrakenCredentials,
 } from './credentialsService.js';
 import { EtoroApiError } from './errors.js';
 import { isSupabaseConfigured } from './supabase.js';
@@ -23,6 +29,11 @@ import {
   importEtradeGl,
   importEtradeStatements,
 } from './services/etrade.js';
+import {
+  getKrakenOverview,
+  getKrakenPerformance,
+  runKrakenSync,
+} from './services/kraken.js';
 import { getAllocationHistory } from './services/allocation.js';
 import { getEquityHistory } from './services/balances.js';
 import { getBestPerformance, type Granularity } from './services/performance.js';
@@ -139,6 +150,31 @@ app.delete(
   '/api/credentials',
   handle(async (_req, res) => {
     res.json({ ok: true, ...logoutCredentials() });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Broker add / remove (Overview preferences)
+// ---------------------------------------------------------------------------
+
+app.get(
+  '/api/brokers',
+  handle(async (_req, res) => {
+    res.json(await getBrokersStatus());
+  }),
+);
+
+app.post(
+  '/api/brokers/:id/enable',
+  handle(async (req, res) => {
+    res.json(await enableBroker(String(req.params.id)));
+  }),
+);
+
+app.delete(
+  '/api/brokers/:id/enable',
+  handle(async (req, res) => {
+    res.json(await disableBroker(String(req.params.id)));
   }),
 );
 
@@ -280,6 +316,7 @@ app.post(
     const result = await importAbnStatements(
       files.map((f) => ({ buffer: f.buffer, fileName: f.originalname })),
     );
+    await enableBroker('abnamro').catch(() => undefined);
     res.json(result);
   }),
 );
@@ -319,6 +356,7 @@ app.post(
     const result = await importEtradeStatements(
       files.map((f) => ({ buffer: f.buffer, fileName: f.originalname })),
     );
+    await enableBroker('etrade').catch(() => undefined);
     res.json(result);
   }),
 );
@@ -335,7 +373,61 @@ app.post(
     const result = await importEtradeGl(
       files.map((f) => ({ buffer: f.buffer, fileName: f.originalname })),
     );
+    await enableBroker('etrade').catch(() => undefined);
     res.json(result);
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Kraken
+// ---------------------------------------------------------------------------
+
+app.post(
+  '/api/kraken/credentials',
+  handle(async (req, res) => {
+    const body = req.body ?? {};
+    const status = await configureKrakenCredentials({
+      apiKey: String(body.apiKey ?? ''),
+      apiSecret: String(body.apiSecret ?? ''),
+      supabaseUrl: body.supabaseUrl != null ? String(body.supabaseUrl) : undefined,
+      supabaseServiceRoleKey:
+        body.supabaseServiceRoleKey != null ? String(body.supabaseServiceRoleKey) : undefined,
+    });
+    res.json({ ok: true, ...status });
+  }),
+);
+
+app.delete(
+  '/api/kraken/credentials',
+  handle(async (_req, res) => {
+    res.json({ ok: true, ...disconnectKraken() });
+  }),
+);
+
+app.post(
+  '/api/kraken/sync',
+  handle(async (_req, res) => {
+    requireKrakenCredentials();
+    res.json(await runKrakenSync());
+  }),
+);
+
+app.get(
+  '/api/kraken/overview',
+  handle(async (_req, res) => {
+    res.json(await getKrakenOverview());
+  }),
+);
+
+app.get(
+  '/api/kraken/performance',
+  handle(async (req, res) => {
+    const g = (req.query.granularity as Granularity) ?? 'monthly';
+    if (!GRANULARITIES.includes(g)) {
+      res.status(400).json({ error: 'granularity must be daily, weekly, monthly or yearly' });
+      return;
+    }
+    res.json(await getKrakenPerformance(g, dateParam(req, 'from'), dateParam(req, 'to')));
   }),
 );
 
@@ -390,31 +482,45 @@ app.listen(PORT, () => {
   console.log(`Portfolio server listening on http://localhost:${PORT}`);
   const status = getCredentialsStatus();
   if (!status.configured) {
-    console.log('No credentials yet — open the web app and complete the login screen.');
+    console.log('No credentials yet — open the web app and add a broker to get started.');
     return;
   }
-  console.log(`Credentials loaded from local store (etoro=${status.etoroConfigured}, supabase=${status.supabaseConfigured})`);
+  console.log(
+    `Credentials loaded (etoro=${status.etoroConfigured}, kraken=${status.krakenConfigured}, supabase=${status.supabaseConfigured})`,
+  );
 
-  void getBootstrap()
-    .then((b) =>
-      console.log(
-        `Bootstrap: env=${b.environment} gcid=${b.gcid} username=${b.username} tradingAccount=${b.tradingAccountId}`,
-      ),
-    )
-    .catch((err) => console.warn('Bootstrap warmup failed:', err.message));
-
-  if (isSupabaseConfigured()) {
-    void runSync()
-      .then((r) =>
+  if (status.etoroConfigured) {
+    void getBootstrap()
+      .then((b) =>
         console.log(
-          `Startup sync: seeded=${r.seeded} balances=${r.balanceRowsUpserted} trades=${r.tradeRowsUpserted} range=${r.earliestSnapshot}→${r.latestSnapshot}`,
+          `Bootstrap: env=${b.environment} gcid=${b.gcid} username=${b.username} tradingAccount=${b.tradingAccountId}`,
         ),
       )
-      .catch((err) =>
-        console.warn(
-          'Startup sync failed (run server/supabase/migrations/001_init.sql and 003_multi_broker.sql in the Supabase SQL editor if tables are missing):',
-          err.message,
+      .catch((err) => console.warn('Bootstrap warmup failed:', err.message));
+
+    if (isSupabaseConfigured()) {
+      void runSync()
+        .then((r) =>
+          console.log(
+            `Startup sync: seeded=${r.seeded} balances=${r.balanceRowsUpserted} trades=${r.tradeRowsUpserted} range=${r.earliestSnapshot}→${r.latestSnapshot}`,
+          ),
+        )
+        .catch((err) =>
+          console.warn(
+            'Startup sync failed (run server/supabase/migrations/001_init.sql and 003_multi_broker.sql in the Supabase SQL editor if tables are missing):',
+            err.message,
+          ),
+        );
+    }
+  }
+
+  if (status.krakenConfigured && isSupabaseConfigured()) {
+    void runKrakenSync()
+      .then((r) =>
+        console.log(
+          `Kraken startup sync: equityUSD=${r.equityUsd.toFixed(2)} holdings=${r.holdingsCount} date=${r.date}`,
         ),
-      );
+      )
+      .catch((err) => console.warn('Kraken startup sync failed:', err.message));
   }
 });

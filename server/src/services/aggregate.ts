@@ -3,17 +3,19 @@
  */
 
 import { getBootstrap } from '../bootstrap.js';
-import { getCredentialsStatus } from '../credentialsService.js';
+import { getBrokersStatus, getCredentialsStatus } from '../credentialsService.js';
 import { getSupabase, isSupabaseConfigured, selectAllRows } from '../supabase.js';
 import { getAbnOverview, getAbnPerformance } from './abnamro.js';
 import { getEquityHistory } from './balances.js';
 import { getEtradeBrokerCardStats } from './etrade.js';
+import { getKrakenBrokerCardStats, getKrakenPerformance } from './kraken.js';
 import { convertSeries, ensureFxRates } from './fx.js';
 import {
   getBestPerformance,
   type Granularity,
   type PerformanceSeries,
 } from './performance.js';
+import type { BrokerId } from '../brokers.js';
 
 export interface BrokerCard {
   broker: string;
@@ -36,6 +38,7 @@ export interface AggregateOverview {
   currency: 'EUR';
   totalValueEur: number;
   brokers: BrokerCard[];
+  enabledBrokers: BrokerId[];
   equity: {
     date: string;
     totalEur: number;
@@ -43,33 +46,6 @@ export interface AggregateOverview {
   }[];
   performance: PerformanceSeries;
 }
-
-const PLACEHOLDERS: BrokerCard[] = [
-  {
-    broker: 'revolut',
-    displayName: 'Revolut',
-    currency: 'EUR',
-    accountId: null,
-    valueNative: null,
-    valueEur: null,
-    gainPct: null,
-    available: false,
-    href: '#',
-    placeholder: true,
-  },
-  {
-    broker: 'kraken',
-    displayName: 'Kraken',
-    currency: 'USD',
-    accountId: null,
-    valueNative: null,
-    valueEur: null,
-    gainPct: null,
-    available: false,
-    href: '#',
-    placeholder: true,
-  },
-];
 
 function forwardFill(
   sparse: { date: string; value: number }[],
@@ -209,6 +185,75 @@ async function abnSeriesEur(): Promise<{
   }
 }
 
+async function krakenSeriesEur(): Promise<{
+  card: BrokerCard;
+  points: { date: string; value: number }[];
+  performance: PerformanceSeries | null;
+  snapshots: { date: string; total: number; netFlow: number }[];
+}> {
+  const emptyCard: BrokerCard = {
+    broker: 'kraken',
+    displayName: 'Kraken',
+    currency: 'USD',
+    accountId: null,
+    valueNative: null,
+    valueEur: null,
+    gainPct: null,
+    available: false,
+    href: '/kraken',
+  };
+
+  try {
+    const stats = await getKrakenBrokerCardStats();
+    if (!stats.available) {
+      return { card: emptyCard, points: [], performance: null, snapshots: [] };
+    }
+
+    let points: { date: string; value: number }[] = [];
+    if (stats.snapshots.length) {
+      const from = stats.snapshots[0].date;
+      const to = stats.snapshots[stats.snapshots.length - 1].date;
+      try {
+        const rates = await ensureFxRates('USD', 'EUR', from, to);
+        points = stats.snapshots.map((s) => ({
+          date: s.date,
+          value: s.total * (rates.get(s.date) ?? 1),
+        }));
+      } catch {
+        points = stats.snapshots.map((s) => ({ date: s.date, value: s.total }));
+      }
+    }
+
+    let performance: PerformanceSeries | null = null;
+    try {
+      performance = await getKrakenPerformance('monthly');
+    } catch {
+      // ignore
+    }
+
+    return {
+      card: {
+        broker: 'kraken',
+        displayName: 'Kraken',
+        currency: 'USD',
+        accountId: stats.accountId,
+        valueNative: stats.valueNative,
+        valueEur: stats.valueEur,
+        gainPct: stats.gainPct,
+        available: true,
+        href: '/kraken',
+        kind: 'equity',
+      },
+      points,
+      performance,
+      snapshots: stats.snapshots,
+    };
+  } catch (err) {
+    console.warn('Kraken aggregate unavailable:', (err as Error).message);
+    return { card: emptyCard, points: [], performance: null, snapshots: [] };
+  }
+}
+
 /**
  * Combined TWR across brokers using daily (or available) EUR equity + net flows.
  * For sparse brokers we forward-fill value; net flows only on statement/snapshot days.
@@ -217,7 +262,6 @@ async function combinedPerformance(
   brokerSeries: { broker: string; currency: string; points: { date: string; total: number; netFlow: number }[] }[],
   granularity: Granularity,
 ): Promise<PerformanceSeries> {
-  // Convert each to EUR and gather all dates
   const eurSeries: { date: string; total: number; netFlow: number }[][] = [];
 
   for (const series of brokerSeries) {
@@ -251,7 +295,6 @@ async function combinedPerformance(
     ...new Set(eurSeries.flatMap((s) => s.map((p) => p.date))),
   ].sort();
 
-  // Forward-fill each broker's total; netFlow only on actual dates
   const filled = eurSeries.map((s) => {
     const totalMap = forwardFill(
       s.map((p) => ({ date: p.date, value: p.total })),
@@ -282,12 +325,10 @@ async function combinedPerformance(
     const base = prev.total + cur.netFlow;
     if (base <= 0) continue;
     const gain = (cur.total - prev.total - cur.netFlow) / base;
-    // Skip zero-change forward-fill days to avoid empty noise in daily mode
     if (Math.abs(gain) < 1e-12 && cur.netFlow === 0) continue;
     daily.push({ date: cur.date, gain });
   }
 
-  // Bucket
   const bucketOf = (date: string): string => {
     if (granularity === 'yearly') return date.slice(0, 4);
     if (granularity === 'monthly') return date.slice(0, 7);
@@ -341,58 +382,100 @@ async function combinedPerformance(
 export async function getAggregateOverview(
   granularity: Granularity = 'monthly',
 ): Promise<AggregateOverview> {
-  const [etoro, abn, etradeStats] = await Promise.all([
-    etoroSeriesEur(),
-    abnSeriesEur(),
-    getEtradeBrokerCardStats().catch((err) => {
-      console.warn('E*TRADE aggregate card unavailable:', (err as Error).message);
-      return {
-        available: false,
-        kind: 'realized' as const,
-        accountId: null,
-        currency: 'USD' as const,
-        valueNative: null,
-        valueEur: null,
-        gainPct: null,
-        totalAdjustedGainUsd: 0,
-        returnOnCost: null,
-        totalAdjustedGainEur: null,
-        snapshots: [] as { date: string; total: number; netFlow: number }[],
-      };
-    }),
+  const brokersStatus = await getBrokersStatus();
+  const enabled = new Set(brokersStatus.enabled);
+
+  const needEtoro = enabled.has('etoro');
+  const needAbn = enabled.has('abnamro');
+  const needEtrade = enabled.has('etrade');
+  const needKraken = enabled.has('kraken');
+
+  const [etoro, abn, etradeStats, kraken] = await Promise.all([
+    needEtoro
+      ? etoroSeriesEur()
+      : Promise.resolve({
+          card: null as BrokerCard | null,
+          points: [] as { date: string; value: number }[],
+          performance: null as PerformanceSeries | null,
+        }),
+    needAbn
+      ? abnSeriesEur()
+      : Promise.resolve({
+          card: null as BrokerCard | null,
+          points: [] as { date: string; value: number }[],
+          performance: null as PerformanceSeries | null,
+        }),
+    needEtrade
+      ? getEtradeBrokerCardStats().catch((err) => {
+          console.warn('E*TRADE aggregate card unavailable:', (err as Error).message);
+          return {
+            available: false,
+            kind: 'realized' as const,
+            accountId: null,
+            currency: 'USD' as const,
+            valueNative: null,
+            valueEur: null,
+            gainPct: null,
+            totalAdjustedGainUsd: 0,
+            returnOnCost: null,
+            totalAdjustedGainEur: null,
+            snapshots: [] as { date: string; total: number; netFlow: number }[],
+          };
+        })
+      : Promise.resolve(null),
+    needKraken
+      ? krakenSeriesEur()
+      : Promise.resolve({
+          card: null as BrokerCard | null,
+          points: [] as { date: string; value: number }[],
+          performance: null as PerformanceSeries | null,
+          snapshots: [] as { date: string; total: number; netFlow: number }[],
+        }),
   ]);
 
-  const etradeCard: BrokerCard =
-    etradeStats.available && etradeStats.kind === 'equity'
-      ? {
-          broker: 'etrade',
-          displayName: 'E*TRADE',
-          currency: 'USD',
-          accountId: etradeStats.accountId,
-          valueNative: etradeStats.valueNative,
-          valueEur: etradeStats.valueEur,
-          gainPct: etradeStats.gainPct,
-          available: true,
-          href: '/etrade',
-          kind: 'equity',
-        }
-      : {
-          broker: 'etrade',
-          displayName: 'E*TRADE',
-          currency: 'USD',
-          accountId: etradeStats.accountId,
-          valueNative: null,
-          valueEur: null,
-          gainPct: etradeStats.returnOnCost,
-          available: etradeStats.available,
-          href: '/etrade',
-          kind: 'realized',
-          realizedGainNative: etradeStats.available ? etradeStats.totalAdjustedGainUsd : null,
-          realizedGainEur: etradeStats.available ? etradeStats.totalAdjustedGainEur : null,
-        };
+  const brokers: BrokerCard[] = [];
 
+  if (needEtoro && etoro.card) brokers.push(etoro.card);
+
+  if (needAbn && abn.card) brokers.push(abn.card);
+
+  if (needEtrade && etradeStats) {
+    const etradeCard: BrokerCard =
+      etradeStats.available && etradeStats.kind === 'equity'
+        ? {
+            broker: 'etrade',
+            displayName: 'E*TRADE',
+            currency: 'USD',
+            accountId: etradeStats.accountId,
+            valueNative: etradeStats.valueNative,
+            valueEur: etradeStats.valueEur,
+            gainPct: etradeStats.gainPct,
+            available: true,
+            href: '/etrade',
+            kind: 'equity',
+          }
+        : {
+            broker: 'etrade',
+            displayName: 'E*TRADE',
+            currency: 'USD',
+            accountId: etradeStats.accountId,
+            valueNative: null,
+            valueEur: null,
+            gainPct: etradeStats.returnOnCost,
+            available: etradeStats.available,
+            href: '/etrade',
+            kind: 'realized',
+            realizedGainNative: etradeStats.available ? etradeStats.totalAdjustedGainUsd : null,
+            realizedGainEur: etradeStats.available ? etradeStats.totalAdjustedGainEur : null,
+          };
+    brokers.push(etradeCard);
+  }
+
+  if (needKraken && kraken.card) brokers.push(kraken.card);
+
+  const etradeCard = brokers.find((b) => b.broker === 'etrade');
   const etradeEquityPoints =
-    etradeStats.kind === 'equity' && etradeStats.snapshots.length
+    etradeStats && etradeStats.kind === 'equity' && etradeStats.snapshots.length
       ? await (async () => {
           const from = etradeStats.snapshots[0].date;
           const to = etradeStats.snapshots[etradeStats.snapshots.length - 1].date;
@@ -409,44 +492,45 @@ export async function getAggregateOverview(
         })()
       : [];
 
-  const brokers: BrokerCard[] = [etoro.card, abn.card, etradeCard, ...PLACEHOLDERS];
-  const totalValueEur =
-    (etoro.card.valueEur ?? 0) +
-    (abn.card.valueEur ?? 0) +
-    (etradeCard.kind === 'equity' ? (etradeCard.valueEur ?? 0) : 0);
+  const totalValueEur = brokers.reduce((sum, b) => {
+    if (!b.available) return sum;
+    if (b.kind === 'realized') return sum;
+    return sum + (b.valueEur ?? 0);
+  }, 0);
 
-  // Build daily-ish equity chart: union of dates, forward-fill each broker
   const allDates = [
     ...new Set([
       ...etoro.points.map((p) => p.date),
       ...abn.points.map((p) => p.date),
       ...etradeEquityPoints.map((p) => p.date),
+      ...kraken.points.map((p) => p.date),
     ]),
   ].sort();
 
   const etoroFilled = forwardFill(etoro.points, allDates);
   const abnFilled = forwardFill(abn.points, allDates);
   const etradeFilled = forwardFill(etradeEquityPoints, allDates);
+  const krakenFilled = forwardFill(kraken.points, allDates);
 
   const equity = allDates.map((date) => {
     const byBroker: Record<string, number> = {};
-    if (etoro.card.available) byBroker.etoro = etoroFilled.get(date) ?? 0;
-    if (abn.card.available) byBroker.abnamro = abnFilled.get(date) ?? 0;
-    if (etradeCard.kind === 'equity' && etradeCard.available) {
+    if (etoro.card?.available) byBroker.etoro = etoroFilled.get(date) ?? 0;
+    if (abn.card?.available) byBroker.abnamro = abnFilled.get(date) ?? 0;
+    if (etradeCard?.kind === 'equity' && etradeCard.available) {
       byBroker.etrade = etradeFilled.get(date) ?? 0;
     }
+    if (kraken.card?.available) byBroker.kraken = krakenFilled.get(date) ?? 0;
     const totalEur = Object.values(byBroker).reduce((a, b) => a + b, 0);
     return { date, totalEur, byBroker };
   });
 
-  // Performance from native snapshot series with FX on the fly
   const brokerNative: {
     broker: string;
     currency: string;
     points: { date: string; total: number; netFlow: number }[];
   }[] = [];
 
-  if (etoro.card.available) {
+  if (etoro.card?.available) {
     try {
       const boot = await getBootstrap();
       const eq = await getEquityHistory(boot.environment);
@@ -464,7 +548,7 @@ export async function getAggregateOverview(
     }
   }
 
-  if (abn.card.available) {
+  if (abn.card?.available) {
     const overview = await getAbnOverview();
     brokerNative.push({
       broker: 'abnamro',
@@ -477,11 +561,23 @@ export async function getAggregateOverview(
     });
   }
 
-  if (etradeCard.kind === 'equity' && etradeStats.snapshots.length) {
+  if (etradeCard?.kind === 'equity' && etradeStats?.snapshots.length) {
     brokerNative.push({
       broker: 'etrade',
       currency: 'USD',
       points: etradeStats.snapshots.map((s) => ({
+        date: s.date,
+        total: s.total,
+        netFlow: s.netFlow,
+      })),
+    });
+  }
+
+  if (kraken.card?.available && kraken.snapshots.length) {
+    brokerNative.push({
+      broker: 'kraken',
+      currency: 'USD',
+      points: kraken.snapshots.map((s) => ({
         date: s.date,
         total: s.total,
         netFlow: s.netFlow,
@@ -495,6 +591,7 @@ export async function getAggregateOverview(
     currency: 'EUR',
     totalValueEur,
     brokers,
+    enabledBrokers: brokersStatus.enabled,
     equity,
     performance,
   };

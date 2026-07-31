@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Area,
   AreaChart,
@@ -10,8 +10,17 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { api, fmtMoney, fmtPct, type AggregateOverview, type Granularity } from '../api';
-import { AppNav } from '../components/AppNav';
+import {
+  api,
+  fmtMoney,
+  fmtPct,
+  type AggregateOverview,
+  type BrokerId,
+  type BrokerMeta,
+  type BrokersStatus,
+  type Granularity,
+} from '../api';
+import { AppNav, notifyBrokersChanged } from '../components/AppNav';
 import { PerformanceChart } from '../components/PerformanceChart';
 import { usePrivacy } from '../privacy';
 
@@ -25,28 +34,31 @@ const BROKER_COLORS: Record<string, string> = {
 
 export function OverviewPage() {
   usePrivacy();
+  const navigate = useNavigate();
   const [data, setData] = useState<AggregateOverview | null>(null);
+  const [brokersStatus, setBrokersStatus] = useState<BrokersStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [agg, brokers] = await Promise.all([api.aggregate('monthly'), api.brokers()]);
+      setData(agg);
+      setBrokersStatus(brokers);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    api
-      .aggregate('monthly')
-      .then((d) => {
-        if (!cancelled) setData(d);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void refresh();
+  }, [refresh]);
 
   const perfFetcher = useCallback(async (granularity: Granularity) => {
     const agg = await api.aggregate(granularity);
@@ -77,6 +89,46 @@ export function OverviewPage() {
     [activeBrokers],
   );
 
+  const availableToAdd = useMemo(() => {
+    if (!brokersStatus) return [];
+    const enabled = new Set(brokersStatus.enabled);
+    return brokersStatus.catalog.filter((b) => !enabled.has(b.id));
+  }, [brokersStatus]);
+
+  async function onAdd(meta: BrokerMeta) {
+    setBusyId(meta.id);
+    setError(null);
+    try {
+      const next = await api.enableBroker(meta.id);
+      setBrokersStatus(next);
+      notifyBrokersChanged();
+      setAdding(false);
+      navigate(meta.href);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add broker');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onRemove(id: BrokerId) {
+    const label =
+      brokersStatus?.catalog.find((c) => c.id === id)?.displayName ?? id;
+    if (!confirm(`Remove ${label} from Overview?`)) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      const next = await api.disableBroker(id);
+      setBrokersStatus(next);
+      notifyBrokersChanged();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove broker');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="app">
       <AppNav />
@@ -94,117 +146,171 @@ export function OverviewPage() {
           <div className="spinner" />
           Loading aggregated portfolio…
         </div>
-      ) : error ? (
+      ) : error && !data ? (
         <div className="error-box">{error}</div>
-      ) : data ? (
+      ) : (
         <>
-          <div className="cards">
-            <div className="card highlight">
-              <div className="label">Total net worth</div>
-              <div className="value">{fmtMoney(data.totalValueEur, 'EUR')}</div>
-              <div className="hint">
-                {activeBrokers.length} broker{activeBrokers.length === 1 ? '' : 's'} connected
-              </div>
-            </div>
-            {activeBrokers.map((b) => (
-              <div className="card" key={b.broker}>
-                <div className="label">{b.displayName}</div>
-                <div className="value">
-                  {b.kind === 'realized'
-                    ? b.realizedGainEur != null
-                      ? fmtMoney(b.realizedGainEur, 'EUR')
-                      : b.realizedGainNative != null
-                        ? fmtMoney(b.realizedGainNative, b.currency)
-                        : '—'
-                    : b.valueEur != null
-                      ? fmtMoney(b.valueEur, 'EUR')
-                      : '—'}
-                </div>
+          {error && <div className="error-box">{error}</div>}
+
+          {data && (
+            <div className="cards">
+              <div className="card highlight">
+                <div className="label">Total net worth</div>
+                <div className="value">{fmtMoney(data.totalValueEur, 'EUR')}</div>
                 <div className="hint">
-                  {b.kind === 'realized'
-                    ? `Realized G/L${b.realizedGainNative != null && b.currency !== 'EUR' ? ` · ${fmtMoney(b.realizedGainNative, b.currency)}` : ''}`
-                    : b.valueNative != null && b.currency !== 'EUR'
-                      ? `${fmtMoney(b.valueNative, b.currency)} native`
-                      : b.currency}
-                  {b.gainPct != null ? ` · ${fmtPct(b.gainPct)}` : ''}
+                  {activeBrokers.length} broker{activeBrokers.length === 1 ? '' : 's'} connected
                 </div>
               </div>
-            ))}
-          </div>
+              {activeBrokers.map((b) => (
+                <div className="card" key={b.broker}>
+                  <div className="label">{b.displayName}</div>
+                  <div className="value">
+                    {b.kind === 'realized'
+                      ? b.realizedGainEur != null
+                        ? fmtMoney(b.realizedGainEur, 'EUR')
+                        : b.realizedGainNative != null
+                          ? fmtMoney(b.realizedGainNative, b.currency)
+                          : '—'
+                      : b.valueEur != null
+                        ? fmtMoney(b.valueEur, 'EUR')
+                        : '—'}
+                  </div>
+                  <div className="hint">
+                    {b.kind === 'realized'
+                      ? `Realized G/L${b.realizedGainNative != null && b.currency !== 'EUR' ? ` · ${fmtMoney(b.realizedGainNative, b.currency)}` : ''}`
+                      : b.valueNative != null && b.currency !== 'EUR'
+                        ? `${fmtMoney(b.valueNative, b.currency)} native`
+                        : b.currency}
+                    {b.gainPct != null ? ` · ${fmtPct(b.gainPct)}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <section className="panel">
             <div className="panel-header">
               <div>
                 <h2>Brokers</h2>
-                <div className="desc">Connected accounts and upcoming integrations</div>
+                <div className="desc">Add or remove brokers from this overview</div>
               </div>
+              {availableToAdd.length > 0 && (
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => setAdding((v) => !v)}
+                >
+                  {adding ? 'Cancel' : 'Add broker'}
+                </button>
+              )}
             </div>
+
+            {adding && availableToAdd.length > 0 && (
+              <div className="broker-add-list">
+                {availableToAdd.map((meta) => (
+                  <button
+                    key={meta.id}
+                    type="button"
+                    className="broker-add-item"
+                    disabled={busyId === meta.id}
+                    onClick={() => void onAdd(meta)}
+                  >
+                    <span
+                      className="swatch"
+                      style={{ background: BROKER_COLORS[meta.id] ?? '#8698ad' }}
+                    />
+                    <span className="broker-add-text">
+                      <strong>{meta.displayName}</strong>
+                      <span className="muted">{meta.description}</span>
+                    </span>
+                    <span className="broker-add-cta">
+                      {busyId === meta.id ? 'Adding…' : 'Add'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="broker-grid">
-              {data.brokers.map((b) => {
-                const body = (
-                  <>
-                    <div className="broker-name">
-                      <span
-                        className="swatch"
-                        style={{ background: BROKER_COLORS[b.broker] ?? '#8698ad' }}
-                      />
-                      {b.displayName}
-                    </div>
-                    {b.placeholder ? (
-                      <div className="broker-meta muted">Coming soon</div>
-                    ) : b.available ? (
-                      <>
-                        <div className="broker-value">
-                          {b.kind === 'realized'
-                            ? b.realizedGainEur != null
-                              ? fmtMoney(b.realizedGainEur, 'EUR')
-                              : b.realizedGainNative != null
-                                ? fmtMoney(b.realizedGainNative, b.currency)
-                                : '—'
-                            : b.valueEur != null
-                              ? fmtMoney(b.valueEur, 'EUR')
-                              : '—'}
-                        </div>
-                        <div className="broker-meta">
-                          {b.kind === 'realized' && (
-                            <span className="muted">Realized G/L · </span>
-                          )}
-                          {b.gainPct != null ? (
-                            <span className={b.gainPct >= 0 ? 'pos' : 'neg'}>{fmtPct(b.gainPct)}</span>
-                          ) : (
-                            <span className="muted">Connected</span>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="broker-meta muted">Not connected — open to set up</div>
-                    )}
-                  </>
-                );
-                if (b.placeholder) {
+              {(data?.brokers ?? []).length === 0 && !adding ? (
+                <div className="empty-state broker-empty">
+                  <p>No brokers yet. Add one to start tracking your portfolio.</p>
+                  {availableToAdd.length > 0 && (
+                    <button type="button" className="login-submit" onClick={() => setAdding(true)}>
+                      Add broker
+                    </button>
+                  )}
+                </div>
+              ) : (
+                (data?.brokers ?? []).map((b) => {
+                  const body = (
+                    <>
+                      <div className="broker-name">
+                        <span
+                          className="swatch"
+                          style={{ background: BROKER_COLORS[b.broker] ?? '#8698ad' }}
+                        />
+                        {b.displayName}
+                      </div>
+                      {b.available ? (
+                        <>
+                          <div className="broker-value">
+                            {b.kind === 'realized'
+                              ? b.realizedGainEur != null
+                                ? fmtMoney(b.realizedGainEur, 'EUR')
+                                : b.realizedGainNative != null
+                                  ? fmtMoney(b.realizedGainNative, b.currency)
+                                  : '—'
+                              : b.valueEur != null
+                                ? fmtMoney(b.valueEur, 'EUR')
+                                : '—'}
+                          </div>
+                          <div className="broker-meta">
+                            {b.kind === 'realized' && (
+                              <span className="muted">Realized G/L · </span>
+                            )}
+                            {b.gainPct != null ? (
+                              <span className={b.gainPct >= 0 ? 'pos' : 'neg'}>
+                                {fmtPct(b.gainPct)}
+                              </span>
+                            ) : (
+                              <span className="muted">Connected</span>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="broker-meta muted">Not connected — open to set up</div>
+                      )}
+                    </>
+                  );
                   return (
-                    <div key={b.broker} className="broker-card placeholder">
-                      {body}
+                    <div key={b.broker} className="broker-card-wrap">
+                      <Link to={b.href} className="broker-card">
+                        {body}
+                      </Link>
+                      <button
+                        type="button"
+                        className="broker-remove"
+                        disabled={busyId === b.broker}
+                        onClick={() => void onRemove(b.broker as BrokerId)}
+                        title="Remove from Overview"
+                      >
+                        Remove
+                      </button>
                     </div>
                   );
-                }
-                return (
-                  <Link key={b.broker} to={b.href} className="broker-card">
-                    {body}
-                  </Link>
-                );
-              })}
+                })
+              )}
             </div>
           </section>
 
-          {chartData.length > 0 && (
+          {data && chartData.length > 0 && (
             <section className="panel">
               <div className="panel-header">
                 <div>
                   <h2>Net worth over time</h2>
                   <div className="desc">
-                    EUR · ABN AMRO / E*TRADE forward-filled between quarterly statements; eToro daily
-                    where available
+                    EUR · statement brokers forward-filled between snapshots; live APIs where available
                   </div>
                 </div>
               </div>
@@ -269,14 +375,16 @@ export function OverviewPage() {
             </section>
           )}
 
-          <PerformanceChart
-            title="Combined performance"
-            description="Deposit-adjusted time-weighted return across all connected brokers (EUR)."
-            fetcher={perfFetcher}
-            derivedNote="Combined TWR from each broker’s equity series converted to EUR. Sparse brokers are forward-filled between snapshots."
-          />
+          {data && (
+            <PerformanceChart
+              title="Combined performance"
+              description="Deposit-adjusted time-weighted return across all connected brokers (EUR)."
+              fetcher={perfFetcher}
+              derivedNote="Combined TWR from each broker’s equity series converted to EUR. Sparse brokers are forward-filled between snapshots."
+            />
+          )}
         </>
-      ) : null}
+      )}
     </div>
   );
 }
