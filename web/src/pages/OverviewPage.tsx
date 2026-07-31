@@ -72,6 +72,11 @@ export function OverviewPage() {
     [data],
   );
 
+  const equityBrokers = useMemo(
+    () => activeBrokers.filter((b) => b.kind !== 'realized'),
+    [activeBrokers],
+  );
+
   return (
     <div className="app">
       <AppNav />
@@ -105,12 +110,22 @@ export function OverviewPage() {
               <div className="card" key={b.broker}>
                 <div className="label">{b.displayName}</div>
                 <div className="value">
-                  {b.valueEur != null ? fmtMoney(b.valueEur, 'EUR') : '—'}
+                  {b.kind === 'realized'
+                    ? b.realizedGainEur != null
+                      ? fmtMoney(b.realizedGainEur, 'EUR')
+                      : b.realizedGainNative != null
+                        ? fmtMoney(b.realizedGainNative, b.currency)
+                        : '—'
+                    : b.valueEur != null
+                      ? fmtMoney(b.valueEur, 'EUR')
+                      : '—'}
                 </div>
                 <div className="hint">
-                  {b.valueNative != null && b.currency !== 'EUR'
-                    ? `${fmtMoney(b.valueNative, b.currency)} native`
-                    : b.currency}
+                  {b.kind === 'realized'
+                    ? `Realized G/L${b.realizedGainNative != null && b.currency !== 'EUR' ? ` · ${fmtMoney(b.realizedGainNative, b.currency)}` : ''}`
+                    : b.valueNative != null && b.currency !== 'EUR'
+                      ? `${fmtMoney(b.valueNative, b.currency)} native`
+                      : b.currency}
                   {b.gainPct != null ? ` · ${fmtPct(b.gainPct)}` : ''}
                 </div>
               </div>
@@ -140,9 +155,20 @@ export function OverviewPage() {
                     ) : b.available ? (
                       <>
                         <div className="broker-value">
-                          {b.valueEur != null ? fmtMoney(b.valueEur, 'EUR') : '—'}
+                          {b.kind === 'realized'
+                            ? b.realizedGainEur != null
+                              ? fmtMoney(b.realizedGainEur, 'EUR')
+                              : b.realizedGainNative != null
+                                ? fmtMoney(b.realizedGainNative, b.currency)
+                                : '—'
+                            : b.valueEur != null
+                              ? fmtMoney(b.valueEur, 'EUR')
+                              : '—'}
                         </div>
                         <div className="broker-meta">
+                          {b.kind === 'realized' && (
+                            <span className="muted">Realized G/L · </span>
+                          )}
                           {b.gainPct != null ? (
                             <span className={b.gainPct >= 0 ? 'pos' : 'neg'}>{fmtPct(b.gainPct)}</span>
                           ) : (
@@ -177,8 +203,8 @@ export function OverviewPage() {
                 <div>
                   <h2>Net worth over time</h2>
                   <div className="desc">
-                    EUR · ABN AMRO forward-filled between quarterly statements; eToro daily where
-                    available
+                    EUR · ABN AMRO / E*TRADE forward-filled between quarterly statements; eToro daily
+                    where available
                   </div>
                 </div>
               </div>
@@ -210,7 +236,7 @@ export function OverviewPage() {
                             <span className="t-key">Total</span>
                             <span>{fmtMoney(p.total, 'EUR')}</span>
                           </div>
-                          {activeBrokers.map((b) => {
+                          {equityBrokers.map((b) => {
                             const row = p as Record<string, unknown>;
                             const v = row[b.broker];
                             if (typeof v !== 'number') return null;
@@ -226,7 +252,7 @@ export function OverviewPage() {
                     }}
                   />
                   <Legend />
-                  {activeBrokers.map((b) => (
+                  {equityBrokers.map((b) => (
                     <Area
                       key={b.broker}
                       type="stepAfter"

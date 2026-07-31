@@ -16,6 +16,10 @@
     "import:etoro-history": "npm run import:etoro-history -w server --"
   },
   "devDependencies": {
+    "@types/xlsx": "^0.0.35",
     "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
   }
 }

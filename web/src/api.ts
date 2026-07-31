@@ -290,6 +290,9 @@ export interface BrokerCard {
   available: boolean;
   href: string;
   placeholder?: boolean;
+  kind?: 'equity' | 'realized';
+  realizedGainNative?: number | null;
+  realizedGainEur?: number | null;
 }
 
 export interface AggregateOverview {
@@ -302,6 +305,118 @@ export interface AggregateOverview {
     byBroker: Record<string, number>;
   }[];
   performance: PerformanceSeries;
+}
+
+// ---------------------------------------------------------------------------
+// E*TRADE
+// ---------------------------------------------------------------------------
+
+export interface EtradeImportFileResult {
+  fileName: string;
+  status: 'imported' | 'duplicate' | 'replaced' | 'error';
+  lotCount?: number;
+  totalAdjustedGain?: number;
+  statementDate?: string;
+  totalBalance?: number;
+  netFlow?: number;
+  holdings?: number;
+  statementsImported?: number;
+  error?: string;
+}
+
+export interface EtradeImportResult {
+  accountId: string;
+  results: EtradeImportFileResult[];
+  imported: number;
+  duplicates: number;
+  errors: number;
+}
+
+export interface EtradeLotView {
+  lotKey: string;
+  symbol: string;
+  quantity: number;
+  dateAcquired: string | null;
+  dateSold: string;
+  adjustedCost: number;
+  proceeds: number;
+  adjustedGain: number;
+  capitalGainsStatus: string | null;
+  planType: string | null;
+  orderNumber: string | null;
+}
+
+export interface EtradeSymbolRollup {
+  symbol: string;
+  quantity: number;
+  adjustedCost: number;
+  proceeds: number;
+  adjustedGain: number;
+  returnOnCost: number | null;
+  lotCount: number;
+}
+
+export interface EtradeOverview {
+  available: boolean;
+  reason?: string;
+  hasEquity: boolean;
+  hasRealized: boolean;
+  accountId: string | null;
+  accountNumber: string | null;
+  currency: 'USD';
+  currentValue: number | null;
+  valueNative: number | null;
+  valueEur: number | null;
+  statementDate: string | null;
+  totalDeposits: number;
+  totalWithdrawals: number;
+  allTimeGain: number | null;
+  allTimeGainPct: number | null;
+  snapshots: {
+    date: string;
+    total: number;
+    netFlow: number;
+    cumulativeNetDeposits: number;
+  }[];
+  latestHoldings: {
+    symbol: string;
+    name: string | null;
+    quantity: number;
+    price: number;
+    value: number;
+  }[];
+  statementImports: {
+    fileName: string | null;
+    statementDate: string;
+    totalBalance: number | null;
+    importedAt: string;
+    fileHash: string;
+  }[];
+  totalQuantity: number;
+  totalAdjustedCost: number;
+  totalProceeds: number;
+  totalAdjustedGain: number;
+  returnOnCost: number | null;
+  longGain: number;
+  shortGain: number;
+  longQuantity: number;
+  shortQuantity: number;
+  cumulativeBySellDate: {
+    date: string;
+    periodGain: number;
+    periodCost: number;
+    periodProceeds: number;
+    cumulativeGain: number;
+  }[];
+  bySymbol: EtradeSymbolRollup[];
+  lots: EtradeLotView[];
+  imports: {
+    fileName: string | null;
+    statementDate: string;
+    totalBalance: number | null;
+    importedAt: string;
+    fileHash: string;
+  }[];
 }
 
 export interface CredentialsInput {
@@ -409,6 +524,25 @@ export const api = {
     const form = new FormData();
     for (const f of files) form.append('files', f);
     return postForm<AbnImportResult>('/api/abnamro/import', form);
+  },
+  etradeOverview: () => get<EtradeOverview>('/api/etrade/overview'),
+  etradePerformance: (granularity: Granularity, from?: string, to?: string) =>
+    get<PerformanceSeries>(
+      `/api/etrade/performance?granularity=${granularity}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`,
+    ),
+  etradeEquityPerformance: (granularity: Granularity, from?: string, to?: string) =>
+    get<PerformanceSeries>(
+      `/api/etrade/equity-performance?granularity=${granularity}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`,
+    ),
+  etradeImport: (files: File[]) => {
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    return postForm<EtradeImportResult>('/api/etrade/import', form);
+  },
+  etradeImportStatements: (files: File[]) => {
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    return postForm<EtradeImportResult>('/api/etrade/statements/import', form);
   },
   aggregate: (granularity: Granularity = 'monthly') =>
     get<AggregateOverview>(`/api/aggregate?granularity=${granularity}`),

@@ -5,6 +5,7 @@ const LINKS = [
   { to: '/', label: 'Overview', end: true },
   { to: '/etoro', label: 'eToro' },
   { to: '/abnamro', label: 'ABN AMRO' },
+  { to: '/etrade', label: 'E*TRADE' },
 ];
 
 export function AppNav() {

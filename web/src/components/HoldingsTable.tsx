@@ -76,8 +76,8 @@ function Drilldown({
                   <td>{fmtDateTime(t.openTimestamp)}</td>
                   <td>{fmtDateTime(t.closeTimestamp)}</td>
                   <td>{fmtMoney(t.investment, currency)}</td>
-                  <td>{t.openRate}</td>
-                  <td>{t.closeRate}</td>
+                  <td>{fmtAbs(t.openRate, 2)}</td>
+                  <td>{fmtAbs(t.closeRate, 2)}</td>
                   <td>×{t.leverage}</td>
                   <td className={t.netProfit >= 0 ? 'pos' : 'neg'}>
                     {fmtMoney(t.netProfit, currency)}

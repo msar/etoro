@@ -16,6 +16,13 @@ import {
   getAbnPerformance,
   importAbnStatements,
 } from './services/abnamro.js';
+import {
+  getEtradeEquityPerformance,
+  getEtradeOverview,
+  getEtradePerformance,
+  importEtradeGl,
+  importEtradeStatements,
+} from './services/etrade.js';
 import { getAllocationHistory } from './services/allocation.js';
 import { getEquityHistory } from './services/balances.js';
 import { getBestPerformance, type Granularity } from './services/performance.js';
@@ -29,19 +36,49 @@ import { earliestStoredTradeDate, getTrades } from './services/trades.js';
 const app = express();
 app.use(express.json({ limit: '64kb' }));
 
-const upload = multer({
+function pdfOnly(
+  _req: Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback,
+) {
+  if (
+    file.mimetype === 'application/pdf' ||
+    file.originalname.toLowerCase().endsWith('.pdf')
+  ) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only PDF files are accepted'));
+  }
+}
+
+function spreadsheetOnly(
+  _req: Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback,
+) {
+  const name = file.originalname.toLowerCase();
+  if (
+    name.endsWith('.xlsx') ||
+    name.endsWith('.xls') ||
+    name.endsWith('.csv') ||
+    /spreadsheet|excel|csv/.test(file.mimetype)
+  ) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only .xlsx, .xls, or .csv files are accepted'));
+  }
+}
+
+const uploadPdf = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024, files: 30 },
-  fileFilter: (_req, file, cb) => {
-    if (
-      file.mimetype === 'application/pdf' ||
-      file.originalname.toLowerCase().endsWith('.pdf')
-    ) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are accepted'));
-    }
-  },
+  fileFilter: pdfOnly,
+});
+
+const uploadSheet = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024, files: 10 },
+  fileFilter: spreadsheetOnly,
 });
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -233,7 +270,7 @@ app.get(
 
 app.post(
   '/api/abnamro/import',
-  upload.array('files', 30),
+  uploadPdf.array('files', 30),
   handle(async (req, res) => {
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     if (!files.length) {
@@ -263,6 +300,73 @@ app.get(
       return;
     }
     res.json(await getAbnPerformance(g, dateParam(req, 'from'), dateParam(req, 'to')));
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// E*TRADE — Client Statements + Gains & Losses
+// ---------------------------------------------------------------------------
+
+app.post(
+  '/api/etrade/statements/import',
+  uploadPdf.array('files', 30),
+  handle(async (req, res) => {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) {
+      res.status(400).json({ error: 'Upload one or more E*TRADE Client Statement PDFs' });
+      return;
+    }
+    const result = await importEtradeStatements(
+      files.map((f) => ({ buffer: f.buffer, fileName: f.originalname })),
+    );
+    res.json(result);
+  }),
+);
+
+app.post(
+  '/api/etrade/import',
+  uploadSheet.array('files', 10),
+  handle(async (req, res) => {
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) {
+      res.status(400).json({ error: 'Upload one or more E*TRADE G&L .xlsx/.xls/.csv files' });
+      return;
+    }
+    const result = await importEtradeGl(
+      files.map((f) => ({ buffer: f.buffer, fileName: f.originalname })),
+    );
+    res.json(result);
+  }),
+);
+
+app.get(
+  '/api/etrade/overview',
+  handle(async (_req, res) => {
+    res.json(await getEtradeOverview());
+  }),
+);
+
+app.get(
+  '/api/etrade/equity-performance',
+  handle(async (req, res) => {
+    const g = (req.query.granularity as Granularity) ?? 'monthly';
+    if (!GRANULARITIES.includes(g)) {
+      res.status(400).json({ error: 'granularity must be daily, weekly, monthly or yearly' });
+      return;
+    }
+    res.json(await getEtradeEquityPerformance(g, dateParam(req, 'from'), dateParam(req, 'to')));
+  }),
+);
+
+app.get(
+  '/api/etrade/performance',
+  handle(async (req, res) => {
+    const g = (req.query.granularity as Granularity) ?? 'monthly';
+    if (!GRANULARITIES.includes(g)) {
+      res.status(400).json({ error: 'granularity must be daily, weekly, monthly or yearly' });
+      return;
+    }
+    res.json(await getEtradePerformance(g, dateParam(req, 'from'), dateParam(req, 'to')));
   }),
 );
 

@@ -18,6 +18,7 @@ Then open **http://localhost:5173**.
 | `/` | Overview — net worth across brokers (EUR) |
 | `/etoro` | eToro dashboard (API sync) |
 | `/abnamro` | ABN AMRO Guided Investing (PDF upload) |
+| `/etrade` | E*TRADE realized G&L (Gains & Losses Expanded upload) |
 
 On first visit to **eToro** you will see a login screen. Paste:
 
@@ -32,7 +33,7 @@ Keys are validated, then saved only on this computer at `server/data/credentials
 
 ### One-time Supabase schema
 
-In the [Supabase SQL Editor](https://supabase.com/dashboard), run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (**001**, **002**, **003**) — or print them with `npm run print-migration --workspace server`. Migration **003** adds multi-broker tables required for ABN AMRO imports and the Overview page.
+In the [Supabase SQL Editor](https://supabase.com/dashboard), run every file in [`server/supabase/migrations/`](server/supabase/migrations/) in order (**001**–**004**) — or print them with `npm run print-migration --workspace server`. Migration **003** adds multi-broker tables; **004** adds `broker_lots` for E*TRADE G&L imports.
 
 ### ABN AMRO Guided Investing
 
@@ -45,6 +46,19 @@ npm run import:abnamro --workspace server
 # parser-only check (no DB write):
 npm run verify:abnamro --workspace server
 ```
+
+### E*TRADE Gains & Losses
+
+1. Apply migration 004.
+2. Open **E\*TRADE** and upload a *Gains & Losses Expanded* `.xlsx` (e.g. `exporteddata/GL_ETRADE.xlsx`).
+3. Or:
+
+```bash
+npm run verify:etrade --workspace server
+npm run import:etrade --workspace server
+```
+
+This page is **realized closed-lot G&L only** (adjusted cost / adjusted gain). It does not invent mark-to-market portfolio equity. Overview shows an E\*TRADE card with realized return, but does not add E\*TRADE to the stacked net-worth chart.
 
 ### Backfill older eToro history (Account Statement export)
 
@@ -72,7 +86,8 @@ Balances older than ~360 days come from **Realized Equity** + cash in Account Ac
 - **Overview**: combined net worth in EUR (ECB FX), per-broker cards, stacked equity chart, combined TWR
 - **eToro**: deposit-adjusted performance, equity, allocation, holdings, income
 - **ABN AMRO**: PDF import, quarterly value/performance, asset-class allocation, costs, import log
-- Placeholders for Revolut, Kraken, and E*TRADE on the Overview page
+- **E\*TRADE**: G&L Expanded import, cumulative realized P&L, return on disposed cost, lots table
+- Placeholders for Revolut and Kraken on the Overview page
 
 ## Sharing / GitHub
 

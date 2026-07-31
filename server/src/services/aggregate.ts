@@ -7,6 +7,7 @@ import { getCredentialsStatus } from '../credentialsService.js';
 import { getSupabase, isSupabaseConfigured, selectAllRows } from '../supabase.js';
 import { getAbnOverview, getAbnPerformance } from './abnamro.js';
 import { getEquityHistory } from './balances.js';
+import { getEtradeBrokerCardStats } from './etrade.js';
 import { convertSeries, ensureFxRates } from './fx.js';
 import {
   getBestPerformance,
@@ -25,6 +26,10 @@ export interface BrokerCard {
   available: boolean;
   href: string;
   placeholder?: boolean;
+  /** equity = portfolio MV; realized = closed G&L only (no MV) */
+  kind?: 'equity' | 'realized';
+  realizedGainNative?: number | null;
+  realizedGainEur?: number | null;
 }
 
 export interface AggregateOverview {
@@ -55,18 +60,6 @@ const PLACEHOLDERS: BrokerCard[] = [
   {
     broker: 'kraken',
     displayName: 'Kraken',
-    currency: 'USD',
-    accountId: null,
-    valueNative: null,
-    valueEur: null,
-    gainPct: null,
-    available: false,
-    href: '#',
-    placeholder: true,
-  },
-  {
-    broker: 'etrade',
-    displayName: 'E*TRADE',
     currency: 'USD',
     accountId: null,
     valueNative: null,
@@ -154,6 +147,7 @@ async function etoroSeriesEur(): Promise<{
         gainPct,
         available: nativePoints.length > 0,
         href: '/etoro',
+        kind: 'equity',
       },
       points: converted.map((p) => ({ date: p.date, value: p.value })),
       performance,
@@ -204,6 +198,7 @@ async function abnSeriesEur(): Promise<{
         gainPct: overview.allTimeGainPct,
         available: true,
         href: '/abnamro',
+        kind: 'equity',
       },
       points,
       performance,
@@ -346,24 +341,100 @@ async function combinedPerformance(
 export async function getAggregateOverview(
   granularity: Granularity = 'monthly',
 ): Promise<AggregateOverview> {
-  const [etoro, abn] = await Promise.all([etoroSeriesEur(), abnSeriesEur()]);
+  const [etoro, abn, etradeStats] = await Promise.all([
+    etoroSeriesEur(),
+    abnSeriesEur(),
+    getEtradeBrokerCardStats().catch((err) => {
+      console.warn('E*TRADE aggregate card unavailable:', (err as Error).message);
+      return {
+        available: false,
+        kind: 'realized' as const,
+        accountId: null,
+        currency: 'USD' as const,
+        valueNative: null,
+        valueEur: null,
+        gainPct: null,
+        totalAdjustedGainUsd: 0,
+        returnOnCost: null,
+        totalAdjustedGainEur: null,
+        snapshots: [] as { date: string; total: number; netFlow: number }[],
+      };
+    }),
+  ]);
 
-  const brokers: BrokerCard[] = [etoro.card, abn.card, ...PLACEHOLDERS];
+  const etradeCard: BrokerCard =
+    etradeStats.available && etradeStats.kind === 'equity'
+      ? {
+          broker: 'etrade',
+          displayName: 'E*TRADE',
+          currency: 'USD',
+          accountId: etradeStats.accountId,
+          valueNative: etradeStats.valueNative,
+          valueEur: etradeStats.valueEur,
+          gainPct: etradeStats.gainPct,
+          available: true,
+          href: '/etrade',
+          kind: 'equity',
+        }
+      : {
+          broker: 'etrade',
+          displayName: 'E*TRADE',
+          currency: 'USD',
+          accountId: etradeStats.accountId,
+          valueNative: null,
+          valueEur: null,
+          gainPct: etradeStats.returnOnCost,
+          available: etradeStats.available,
+          href: '/etrade',
+          kind: 'realized',
+          realizedGainNative: etradeStats.available ? etradeStats.totalAdjustedGainUsd : null,
+          realizedGainEur: etradeStats.available ? etradeStats.totalAdjustedGainEur : null,
+        };
+
+  const etradeEquityPoints =
+    etradeStats.kind === 'equity' && etradeStats.snapshots.length
+      ? await (async () => {
+          const from = etradeStats.snapshots[0].date;
+          const to = etradeStats.snapshots[etradeStats.snapshots.length - 1].date;
+          try {
+            const rates = await ensureFxRates('USD', 'EUR', from, to);
+            return etradeStats.snapshots.map((s) => ({
+              date: s.date,
+              value: s.total * (rates.get(s.date) ?? 1),
+            }));
+          } catch (err) {
+            console.warn('E*TRADE equity FX series failed:', (err as Error).message);
+            return etradeStats.snapshots.map((s) => ({ date: s.date, value: s.total }));
+          }
+        })()
+      : [];
+
+  const brokers: BrokerCard[] = [etoro.card, abn.card, etradeCard, ...PLACEHOLDERS];
   const totalValueEur =
-    (etoro.card.valueEur ?? 0) + (abn.card.valueEur ?? 0);
+    (etoro.card.valueEur ?? 0) +
+    (abn.card.valueEur ?? 0) +
+    (etradeCard.kind === 'equity' ? (etradeCard.valueEur ?? 0) : 0);
 
   // Build daily-ish equity chart: union of dates, forward-fill each broker
   const allDates = [
-    ...new Set([...etoro.points.map((p) => p.date), ...abn.points.map((p) => p.date)]),
+    ...new Set([
+      ...etoro.points.map((p) => p.date),
+      ...abn.points.map((p) => p.date),
+      ...etradeEquityPoints.map((p) => p.date),
+    ]),
   ].sort();
 
   const etoroFilled = forwardFill(etoro.points, allDates);
   const abnFilled = forwardFill(abn.points, allDates);
+  const etradeFilled = forwardFill(etradeEquityPoints, allDates);
 
   const equity = allDates.map((date) => {
     const byBroker: Record<string, number> = {};
     if (etoro.card.available) byBroker.etoro = etoroFilled.get(date) ?? 0;
     if (abn.card.available) byBroker.abnamro = abnFilled.get(date) ?? 0;
+    if (etradeCard.kind === 'equity' && etradeCard.available) {
+      byBroker.etrade = etradeFilled.get(date) ?? 0;
+    }
     const totalEur = Object.values(byBroker).reduce((a, b) => a + b, 0);
     return { date, totalEur, byBroker };
   });
@@ -399,6 +470,18 @@ export async function getAggregateOverview(
       broker: 'abnamro',
       currency: 'EUR',
       points: overview.snapshots.map((s) => ({
+        date: s.date,
+        total: s.total,
+        netFlow: s.netFlow,
+      })),
+    });
+  }
+
+  if (etradeCard.kind === 'equity' && etradeStats.snapshots.length) {
+    brokerNative.push({
+      broker: 'etrade',
+      currency: 'USD',
+      points: etradeStats.snapshots.map((s) => ({
         date: s.date,
         total: s.total,
         netFlow: s.netFlow,
