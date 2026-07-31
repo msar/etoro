@@ -138,7 +138,7 @@ async function etoroSeries(
     return {
       card: {
         broker: 'etoro',
-        displayName: boot.username ? `eToro (@${boot.username})` : 'eToro',
+        displayName: 'eToro',
         currency: nativeCcy,
         accountId: boot.gcid != null ? String(boot.gcid) : null,
         valueNative: latestNative,
