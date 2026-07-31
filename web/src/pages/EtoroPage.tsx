@@ -404,10 +404,10 @@ export function EtoroPage() {
       {openBreakdown === 'gain' && (
         <GainBreakdownDrilldown onClose={() => setOpenBreakdown(null)} />
       )}
-      <PortfolioAnalysis />
       <PerformanceChart />
       <GainHeatmap />
       <EquityChart />
+      <PortfolioAnalysis />
       <AllocationChart />
       <InstrumentPerformanceTable />
       <IncomePanel />
