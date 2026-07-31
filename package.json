@@ -13,6 +13,7 @@
     "dev:server": "npm run dev --workspace server",
     "dev:web": "npm run dev --workspace web",
     "build": "npm run build --workspace server && npm run build --workspace web",
+    "build:macos-dmg": "bash scripts/build-macos-dmg.sh",
     "import:etoro-history": "npm run import:etoro-history -w server --"
   },
   "devDependencies": {

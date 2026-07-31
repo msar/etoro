@@ -1,36 +1,31 @@
 #!/usr/bin/env bash
-# macOS .app entry point — opens Terminal and runs start.sh from the project root.
+# Portfolio Evolution.app entry point — hands off to bootstrap (self-updating).
 set -euo pipefail
 
 CONTENTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_DIR="$(cd "$CONTENTS_DIR/.." && pwd)"
-PROJECT_DIR="$(cd "$APP_DIR/.." && pwd)"
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
+SUPPORT_DIR="${PE_SUPPORT_DIR:-$HOME/Library/Application Support/Portfolio Evolution}"
+APP_BOOTSTRAP="$SUPPORT_DIR/app/scripts/bootstrap-macos.sh"
+BUNDLED_BOOTSTRAP="$RESOURCES_DIR/bootstrap-macos.sh"
 
-if [[ ! -x "$PROJECT_DIR/start.sh" ]]; then
-  osascript -e "display alert \"Portfolio Evolution\" message \"Could not find start.sh next to this app.\n\nKeep Portfolio Evolution.app inside the project folder.\" as critical"
-  exit 1
+export PE_SUPPORT_DIR="$SUPPORT_DIR"
+
+alert() {
+  local msg="$1"
+  local q="${msg//\\/\\\\}"
+  q="${q//\"/\\\"}"
+  osascript -e "display alert \"Portfolio Evolution\" message \"$q\" as critical" 2>/dev/null || printf 'ERROR: %s\n' "$msg" >&2
+}
+
+# Prefer the in-app bootstrap (updated from GitHub). Fall back to the copy
+# bundled inside this .app for first launch before any download.
+if [[ -x "$APP_BOOTSTRAP" ]]; then
+  exec "$APP_BOOTSTRAP"
 fi
 
-# Quote for AppleScript string embedding
-PROJECT_Q="${PROJECT_DIR//\\/\\\\}"
-PROJECT_Q="${PROJECT_Q//\"/\\\"}"
+if [[ -x "$BUNDLED_BOOTSTRAP" ]]; then
+  exec "$BUNDLED_BOOTSTRAP"
+fi
 
-osascript <<EOF
-tell application "Terminal"
-  activate
-  do script "cd \"$PROJECT_Q\" && ./start.sh"
-end tell
-EOF
-
-# Give the servers a moment, then open the dashboard
-(
-  for _ in $(seq 1 60); do
-    if curl -sf -o /dev/null "http://localhost:5173/" 2>/dev/null; then
-      open "http://localhost:5173/"
-      exit 0
-    fi
-    sleep 1
-  done
-) &
-
-exit 0
+alert "Could not find the bootstrap script inside this app.\n\nRe-download Portfolio Evolution.app and try again."
+exit 1

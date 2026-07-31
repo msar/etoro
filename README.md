@@ -4,6 +4,17 @@ Multi-broker portfolio tracker — **eToro** (live API), **ABN AMRO Guided Inves
 
 ## Quick start
 
+### macOS app (recommended for non-engineers)
+
+1. Get **`Portfolio-Evolution.dmg`** from whoever maintains this project (built with `npm run build:macos-dmg`).
+2. Open the DMG and drag **Portfolio Evolution** into **Applications**.
+3. Double-click the app. The first time, macOS Gatekeeper may block it (the app is not notarized) — **right-click → Open → Open**.
+4. Wait while it downloads the latest code from GitHub (and Node.js if needed). A Terminal window starts the servers; your browser opens to **http://localhost:5173**.
+
+Later launches check GitHub for updates automatically. Credentials stay on this Mac under `~/Library/Application Support/Portfolio Evolution/` and are kept across updates.
+
+### Developers (from source)
+
 **Prerequisites:** Node.js 20+
 
 ```bash
@@ -100,11 +111,26 @@ Balances older than ~360 days come from **Realized Equity** + cash in Account Ac
 
 ## Sharing / GitHub
 
+### Share the macOS app
+
+Maintainers build a DMG to send to friends (no git clone required):
+
+```bash
+npm run build:macos-dmg
+# → dist/Portfolio-Evolution.dmg
+```
+
+Recipients only need the DMG. The `.app` pulls the latest `main` branch from this public GitHub repo on each launch.
+
+### Secrets
+
 **Do not commit secrets.** This repo is set up so the following stay local:
 
 - `server/.env`
 - `server/data/` (includes `credentials.json`, `preferences.json`)
 - any `credentials.json`
+
+On the macOS app install, the same files live under `~/Library/Application Support/Portfolio Evolution/app/server/data/`.
 
 Safe to commit: source code, `server/.env.example` (empty placeholders), and the SQL migration.
 
@@ -119,6 +145,8 @@ git status   # should not list credentials.json or .env with secrets
 
 On the eToro or Kraken page, use **Change credentials** / **Disconnect**, or delete `server/data/credentials.json` (and optionally `preferences.json`) and restart.
 
+If you use the macOS app, that file is at `~/Library/Application Support/Portfolio Evolution/app/server/data/credentials.json`.
+
 ## Scripts
 
 | Command | What it does |
@@ -126,6 +154,7 @@ On the eToro or Kraken page, use **Change credentials** / **Disconnect**, or del
 | `npm start` / `./start.sh` | API + web together |
 | `npm run dev:server` | API only → http://localhost:4000 |
 | `npm run dev:web` | Vite only → http://localhost:5173 |
+| `npm run build:macos-dmg` | Build `dist/Portfolio-Evolution.dmg` for sharing |
 
 ## Notes
 
