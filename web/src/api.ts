@@ -440,7 +440,11 @@ export interface EtradeOverview {
   statementDate: string | null;
   totalDeposits: number;
   totalWithdrawals: number;
+  /** Remaining equity + withdrawals (stock-plan total value). */
+  totalPlanValue: number | null;
+  /** Equity + withdrawals − compensation inflows (stock evolution). */
   allTimeGain: number | null;
+  /** Investment gain / gross compensation inflows. */
   allTimeGainPct: number | null;
   snapshots: {
     date: string;

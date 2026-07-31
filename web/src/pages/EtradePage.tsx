@@ -327,30 +327,33 @@ export function EtradePage() {
                   </div>
                 </div>
                 <div className="card">
-                  <div className="label">Deposit-adjusted gain</div>
+                  <div className="label">Total plan value</div>
+                  <div className="value">
+                    {overview.totalPlanValue != null
+                      ? fmtMoney(overview.totalPlanValue, 'USD')
+                      : '—'}
+                  </div>
+                  <div className="hint">Remaining + taken out</div>
+                </div>
+                <div className="card">
+                  <div className="label">Investment gain</div>
                   <div
                     className={`value ${(overview.allTimeGain ?? 0) >= 0 ? 'pos' : 'neg'}`}
                   >
                     {overview.allTimeGain != null ? fmtMoney(overview.allTimeGain, 'USD') : '—'}
                   </div>
                   <div className="hint">
-                    {overview.allTimeGainPct != null ? fmtPct(overview.allTimeGainPct) : '—'}
+                    {overview.allTimeGainPct != null
+                      ? `${fmtPct(overview.allTimeGainPct)} vs compensation`
+                      : 'vs compensation received'}
                   </div>
                 </div>
                 <div className="card">
-                  <div className="label">Net deposits</div>
-                  <div className="value">
-                    {fmtMoney(overview.totalDeposits - overview.totalWithdrawals, 'USD')}
-                  </div>
+                  <div className="label">Compensation</div>
+                  <div className="value">{fmtMoney(overview.totalDeposits, 'USD')}</div>
                   <div className="hint">
-                    In {fmtMoney(overview.totalDeposits, 'USD')} · Out{' '}
-                    {fmtMoney(overview.totalWithdrawals, 'USD')}
+                    Out {fmtMoney(overview.totalWithdrawals, 'USD')} taken out
                   </div>
-                </div>
-                <div className="card">
-                  <div className="label">Holdings</div>
-                  <div className="value">{overview.latestHoldings.length}</div>
-                  <div className="hint">Latest statement positions</div>
                 </div>
               </div>
 
@@ -359,7 +362,8 @@ export function EtradePage() {
                   <div>
                     <h2>Account equity</h2>
                     <div className="desc">
-                      Quarterly brokerage market value (excludes unvested RSU)
+                      Quarterly brokerage market value (excludes unvested RSU). Inflows are
+                      stock-plan compensation; withdrawals are takeout, not losses.
                     </div>
                   </div>
                 </div>
@@ -397,7 +401,7 @@ export function EtradePage() {
                               <span>{fmtMoney(p.total, 'USD')}</span>
                             </div>
                             <div className="t-row">
-                              <span className="t-key">Cum. net deposits</span>
+                              <span className="t-key">Cum. net flow</span>
                               <span>{fmtMoney(p.deposits, 'USD')}</span>
                             </div>
                           </div>
@@ -417,9 +421,9 @@ export function EtradePage() {
 
               <PerformanceChart
                 title="Equity performance"
-                description="Deposit-adjusted time-weighted return from quarterly statement snapshots."
+                description="Time-weighted return from quarterly statement snapshots (withdrawals treated as takeout, not losses)."
                 fetcher={equityFetcher}
-                derivedNote="Based on Client Statement ending portfolio values and period net deposits/withdrawals."
+                derivedNote="Based on Client Statement ending portfolio values and period compensation inflows / withdrawals."
               />
 
               {overview.latestHoldings.length > 0 && (

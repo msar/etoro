@@ -87,7 +87,11 @@ export interface EtradeOverview {
   statementDate: string | null;
   totalDeposits: number;
   totalWithdrawals: number;
+  /** Remaining equity + withdrawals (stock-plan total value). */
+  totalPlanValue: number | null;
+  /** Equity + withdrawals − compensation inflows (stock evolution). */
   allTimeGain: number | null;
+  /** Investment gain / gross compensation inflows (withdrawals are takeout, not losses). */
   allTimeGainPct: number | null;
   snapshots: {
     date: string;
@@ -650,6 +654,7 @@ function emptyOverview(reason: string): EtradeOverview {
     statementDate: null,
     totalDeposits: 0,
     totalWithdrawals: 0,
+    totalPlanValue: null,
     allTimeGain: null,
     allTimeGainPct: null,
     snapshots: [],
@@ -716,6 +721,7 @@ async function loadEquitySection(accountIds: string[]): Promise<{
   statementDate: string | null;
   totalDeposits: number;
   totalWithdrawals: number;
+  totalPlanValue: number | null;
   allTimeGain: number | null;
   allTimeGainPct: number | null;
   snapshots: EtradeOverview['snapshots'];
@@ -774,10 +780,11 @@ async function loadEquitySection(accountIds: string[]): Promise<{
   });
 
   const latest = snapshots[snapshots.length - 1] ?? null;
-  const netDeposits = deposits - withdrawals;
-  const allTimeGain = latest != null ? latest.total - netDeposits : null;
+  // Stock-plan semantics: inflows = compensation; withdrawals = realized takeout (not losses).
+  const allTimeGain = latest != null ? latest.total + withdrawals - deposits : null;
   const allTimeGainPct =
-    allTimeGain != null && Math.abs(netDeposits) > 1e-9 ? allTimeGain / netDeposits : null;
+    allTimeGain != null && deposits > 1e-9 ? allTimeGain / deposits : null;
+  const totalPlanValue = latest != null ? latest.total + withdrawals : null;
 
   // Prefer the account that holds the latest non-zero (or latest) snapshot for holdings/label
   const primaryId = (await findEtradeEquityAccountId()) ?? accountIds[0];
@@ -833,6 +840,7 @@ async function loadEquitySection(accountIds: string[]): Promise<{
     statementDate: latest?.date ?? null,
     totalDeposits: deposits,
     totalWithdrawals: withdrawals,
+    totalPlanValue,
     allTimeGain,
     allTimeGainPct,
     snapshots,
@@ -1048,6 +1056,7 @@ export async function getEtradeOverview(): Promise<EtradeOverview> {
     statementDate: equity?.statementDate ?? null,
     totalDeposits: equity?.totalDeposits ?? 0,
     totalWithdrawals: equity?.totalWithdrawals ?? 0,
+    totalPlanValue: equity?.totalPlanValue ?? null,
     allTimeGain: equity?.allTimeGain ?? null,
     allTimeGainPct: equity?.allTimeGainPct ?? null,
     snapshots: equity?.snapshots ?? [],
