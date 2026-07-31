@@ -10,6 +10,8 @@ export interface InstrumentInfo {
   name: string;
   symbol: string;
   imageUrl: string | null;
+  /** eToro instrument type id (5=stocks, 6=ETF, 10=crypto, …); null when absent */
+  instrumentTypeId: number | null;
 }
 
 function selectImageUrl(images: EtoroInstrumentImage[] | undefined): string | null {
@@ -29,6 +31,7 @@ function toInfo(meta: InstrumentMeta): InstrumentInfo {
     name: meta.instrumentDisplayName,
     symbol: meta.symbolFull,
     imageUrl: selectImageUrl(meta.images),
+    instrumentTypeId: meta.instrumentTypeID ?? null,
   };
 }
 

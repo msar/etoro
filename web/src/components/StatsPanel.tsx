@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, fmtMoney, fmtPct, type AccountStats } from '../api';
 import { usePrivacy } from '../privacy';
+import type { BreakdownKind } from './SummaryCards';
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -22,22 +23,46 @@ function Stat({
   value,
   hint,
   tone,
+  onClick,
+  active,
+  affordance,
 }: {
   label: string;
   value: string;
   hint?: string;
   tone?: 'pos' | 'neg' | null;
+  onClick?: () => void;
+  active?: boolean;
+  affordance?: string;
 }) {
-  return (
-    <div className="stat">
-      <div className="label">{label}</div>
+  const clickable = Boolean(onClick);
+  const className = `stat${clickable ? ' clickable' : ''}${active ? ' active' : ''}`;
+  const body = (
+    <>
+      <div className="label">
+        {label}
+        {affordance && <span className="card-affordance">{affordance}</span>}
+      </div>
       <div className={`value ${tone ?? ''}`}>{value}</div>
       {hint && <div className="hint">{hint}</div>}
-    </div>
+    </>
   );
+  if (clickable) {
+    return (
+      <button type="button" className={className} onClick={onClick} title={affordance}>
+        {body}
+      </button>
+    );
+  }
+  return <div className={className}>{body}</div>;
 }
 
-export function StatsPanel() {
+interface StatsPanelProps {
+  openBreakdown?: BreakdownKind | null;
+  onOpenBreakdown?: (kind: BreakdownKind | null) => void;
+}
+
+export function StatsPanel({ openBreakdown = null, onOpenBreakdown }: StatsPanelProps) {
   usePrivacy();
   const [stats, setStats] = useState<AccountStats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +81,11 @@ export function StatsPanel() {
       cancelled = true;
     };
   }, []);
+
+  function toggle(kind: BreakdownKind) {
+    if (!onOpenBreakdown) return;
+    onOpenBreakdown(openBreakdown === kind ? null : kind);
+  }
 
   if (error) {
     return (
@@ -93,7 +123,8 @@ export function StatsPanel() {
           <div className="desc">
             Computed from the full stored history
             {stats.since ? ` — since ${fmtDate(stats.since)} (${years.toFixed(1)} years)` : ''}.
-            All returns are time-weighted and deposit-adjusted.
+            All returns are time-weighted and deposit-adjusted. Click Total gain or All-time profit
+            for a breakdown.
           </div>
         </div>
       </div>
@@ -102,7 +133,10 @@ export function StatsPanel() {
           label="Total gain"
           value={stats.totalGain !== null ? fmtPct(stats.totalGain) : '—'}
           tone={stats.totalGain !== null ? (stats.totalGain >= 0 ? 'pos' : 'neg') : null}
-          hint="Compounded over the whole history"
+          hint="Compounded over the whole history — click for ladder"
+          onClick={() => toggle('gain')}
+          active={openBreakdown === 'gain'}
+          affordance="Details"
         />
         <Stat
           label="CAGR"
@@ -182,9 +216,12 @@ export function StatsPanel() {
           }
           hint={
             stats.positiveDaysPct !== null
-              ? `${(stats.positiveDaysPct * 100).toFixed(0)}% of active days positive`
-              : undefined
+              ? `${(stats.positiveDaysPct * 100).toFixed(0)}% of active days positive — click for sources`
+              : 'Click for sources'
           }
+          onClick={() => toggle('profit')}
+          active={openBreakdown === 'profit'}
+          affordance="Details"
         />
       </div>
     </section>

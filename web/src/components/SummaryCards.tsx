@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { api, fmtMoney, fmtPct, type EquityHistory, type PerformanceSeries, type PortfolioSummary } from '../api';
 import { usePrivacy } from '../privacy';
 
-export function SummaryCards() {
+export type BreakdownKind = 'profit' | 'gain';
+
+interface SummaryCardsProps {
+  openBreakdown?: BreakdownKind | null;
+  onOpenBreakdown?: (kind: BreakdownKind | null) => void;
+}
+
+export function SummaryCards({ openBreakdown = null, onOpenBreakdown }: SummaryCardsProps) {
   usePrivacy(); // re-render when amounts are masked
   const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
   const [equity, setEquity] = useState<EquityHistory | null>(null);
@@ -24,6 +31,11 @@ export function SummaryCards() {
   const earned = last && invested !== null ? last.total - invested : null;
   const allTimeGain = yearly?.totalGain ?? null;
 
+  function toggle(kind: BreakdownKind) {
+    if (!onOpenBreakdown) return;
+    onOpenBreakdown(openBreakdown === kind ? null : kind);
+  }
+
   return (
     <div className="cards">
       <div className="card">
@@ -40,13 +52,21 @@ export function SummaryCards() {
         <div className="value">{invested !== null ? fmtMoney(invested, currency) : '—'}</div>
         <div className="hint">Net deposits basis (full stored history)</div>
       </div>
-      <div className="card">
-        <div className="label">Earned vs deposits</div>
+      <button
+        type="button"
+        className={`card clickable${openBreakdown === 'profit' ? ' active' : ''}`}
+        onClick={() => toggle('profit')}
+        title="See where this profit comes from"
+      >
+        <div className="label">
+          Earned vs deposits
+          <span className="card-affordance">Details</span>
+        </div>
         <div className={`value ${earned !== null && earned < 0 ? 'neg' : 'pos'}`}>
           {earned !== null ? fmtMoney(earned, currency) : '—'}
         </div>
-        <div className="hint">Value above money you put in</div>
-      </div>
+        <div className="hint">Value above money you put in — click for breakdown</div>
+      </button>
       <div className="card">
         <div className="label">Open P&L</div>
         <div className={`value ${portfolio && portfolio.currentPnl < 0 ? 'neg' : 'pos'}`}>
@@ -54,13 +74,21 @@ export function SummaryCards() {
         </div>
         <div className="hint">Unrealized, all open positions</div>
       </div>
-      <div className="card">
-        <div className="label">All-time gain</div>
+      <button
+        type="button"
+        className={`card clickable${openBreakdown === 'gain' ? ' active' : ''}`}
+        onClick={() => toggle('gain')}
+        title="See how this gain percentage is built"
+      >
+        <div className="label">
+          All-time gain
+          <span className="card-affordance">Details</span>
+        </div>
         <div className={`value ${allTimeGain !== null && allTimeGain < 0 ? 'neg' : 'pos'}`}>
           {allTimeGain !== null ? fmtPct(allTimeGain) : '—'}
         </div>
-        <div className="hint">Compounded, deposit-adjusted</div>
-      </div>
+        <div className="hint">Compounded, deposit-adjusted — click for breakdown</div>
+      </button>
     </div>
   );
 }

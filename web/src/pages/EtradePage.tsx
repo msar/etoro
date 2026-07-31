@@ -18,6 +18,7 @@ import {
   type Granularity,
 } from '../api';
 import { AppNav } from '../components/AppNav';
+import { Modal } from '../components/Modal';
 import { PerformanceChart } from '../components/PerformanceChart';
 import { usePrivacy } from '../privacy';
 
@@ -32,6 +33,7 @@ export function EtradePage() {
   const [glImportResult, setGlImportResult] = useState<EtradeImportResult | null>(null);
   const [pdfDragOver, setPdfDragOver] = useState(false);
   const [glDragOver, setGlDragOver] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const glInputRef = useRef<HTMLInputElement>(null);
 
@@ -156,141 +158,206 @@ export function EtradePage() {
         </div>
         <div className="header-actions">
           <div className="sub">Values in USD · unvested RSU excluded from equity</div>
+          <div className="header-actions-row">
+            <button
+              type="button"
+              className="ghost-btn primary"
+              onClick={() => setImportOpen(true)}
+            >
+              Import statements
+            </button>
+          </div>
         </div>
       </header>
 
-      <div className="notice" style={{ marginBottom: 16 }}>
-        Account statements provide brokerage equity (securities + cash). Gains &amp; Losses covers
-        realized closed lots only. Unvested employee stock plan value is not included in equity or
-        Overview.
-      </div>
-
-      <div className="upload-grid" style={{ display: 'grid', gap: 12, marginBottom: 16 }}>
-        <section
-          className={`upload-zone ${pdfDragOver ? 'drag-over' : ''}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setPdfDragOver(true);
-          }}
-          onDragLeave={() => setPdfDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setPdfDragOver(false);
-            if (e.dataTransfer.files.length) void handlePdfFiles(e.dataTransfer.files);
-          }}
-          onClick={() => pdfInputRef.current?.click()}
-        >
-          <input
-            ref={pdfInputRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            multiple
-            hidden
-            onChange={(e) => {
-              if (e.target.files?.length) void handlePdfFiles(e.target.files);
-              e.target.value = '';
-            }}
-          />
-          {uploadingPdf ? (
-            <div className="loading">
-              <div className="spinner" />
-              Parsing statements…
-            </div>
-          ) : (
-            <>
-              <div className="upload-title">Drop Client Statement PDFs here</div>
-              <div className="upload-hint">Account equity · multi-quarter packs supported</div>
-            </>
-          )}
-        </section>
-
-        <section
-          className={`upload-zone ${glDragOver ? 'drag-over' : ''}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setGlDragOver(true);
-          }}
-          onDragLeave={() => setGlDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setGlDragOver(false);
-            if (e.dataTransfer.files.length) void handleGlFiles(e.dataTransfer.files);
-          }}
-          onClick={() => glInputRef.current?.click()}
-        >
-          <input
-            ref={glInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
-            multiple
-            hidden
-            onChange={(e) => {
-              if (e.target.files?.length) void handleGlFiles(e.target.files);
-              e.target.value = '';
-            }}
-          />
-          {uploadingGl ? (
-            <div className="loading">
-              <div className="spinner" />
-              Parsing G&amp;L file…
-            </div>
-          ) : (
-            <>
-              <div className="upload-title">Drop Gains &amp; Losses Expanded (.xlsx) here</div>
-              <div className="upload-hint">Realized closed lots · re-upload replaces prior lots</div>
-            </>
-          )}
-        </section>
-      </div>
-
-      {pdfImportResult && (
-        <div className="panel" style={{ marginBottom: 16 }}>
-          <div className="panel-header">
-            <h2>Statement import</h2>
-            <div className="desc">
-              {pdfImportResult.imported} imported · {pdfImportResult.duplicates} duplicate ·{' '}
-              {pdfImportResult.errors} error
-            </div>
-          </div>
-          <ul className="import-log">
-            {pdfImportResult.results.map((r) => (
-              <li key={r.fileName + (r.statementDate ?? '')} className={`status-${r.status}`}>
-                <strong>{r.fileName}</strong>
-                <span className="badge">{r.status}</span>
-                {r.statementsImported != null && <span>{r.statementsImported} quarters</span>}
-                {r.statementDate && <span>{r.statementDate}</span>}
-                {r.totalBalance != null && <span>{fmtMoney(r.totalBalance, 'USD')}</span>}
-                {r.error && <span className="neg">{r.error}</span>}
-              </li>
-            ))}
-          </ul>
+      <Modal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import statements"
+        description="Client Statement PDFs for brokerage equity, and Gains & Losses Expanded for realized lots. Unvested RSU is excluded from equity."
+        wide
+      >
+        <div className="notice">
+          Account statements provide brokerage equity (securities + cash). Gains &amp; Losses covers
+          realized closed lots only. Unvested employee stock plan value is not included in equity or
+          Overview.
         </div>
-      )}
 
-      {glImportResult && (
-        <div className="panel" style={{ marginBottom: 16 }}>
-          <div className="panel-header">
-            <h2>G&amp;L import</h2>
-            <div className="desc">
-              {glImportResult.imported} imported · {glImportResult.duplicates} duplicate ·{' '}
-              {glImportResult.errors} error
-            </div>
-          </div>
-          <ul className="import-log">
-            {glImportResult.results.map((r) => (
-              <li key={r.fileName} className={`status-${r.status}`}>
-                <strong>{r.fileName}</strong>
-                <span className="badge">{r.status}</span>
-                {r.lotCount != null && <span>{r.lotCount} lots</span>}
-                {r.totalAdjustedGain != null && (
-                  <span>{fmtMoney(r.totalAdjustedGain, 'USD')}</span>
-                )}
-                {r.error && <span className="neg">{r.error}</span>}
-              </li>
-            ))}
-          </ul>
+        <div className="upload-grid" style={{ display: 'grid', gap: 12 }}>
+          <section
+            className={`upload-zone ${pdfDragOver ? 'drag-over' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setPdfDragOver(true);
+            }}
+            onDragLeave={() => setPdfDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setPdfDragOver(false);
+              if (e.dataTransfer.files.length) void handlePdfFiles(e.dataTransfer.files);
+            }}
+            onClick={() => pdfInputRef.current?.click()}
+          >
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              multiple
+              hidden
+              onChange={(e) => {
+                if (e.target.files?.length) void handlePdfFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            {uploadingPdf ? (
+              <div className="loading">
+                <div className="spinner" />
+                Parsing statements…
+              </div>
+            ) : (
+              <>
+                <div className="upload-title">Drop Client Statement PDFs here</div>
+                <div className="upload-hint">Account equity · multi-quarter packs supported</div>
+              </>
+            )}
+          </section>
+
+          <section
+            className={`upload-zone ${glDragOver ? 'drag-over' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setGlDragOver(true);
+            }}
+            onDragLeave={() => setGlDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setGlDragOver(false);
+              if (e.dataTransfer.files.length) void handleGlFiles(e.dataTransfer.files);
+            }}
+            onClick={() => glInputRef.current?.click()}
+          >
+            <input
+              ref={glInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+              multiple
+              hidden
+              onChange={(e) => {
+                if (e.target.files?.length) void handleGlFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            {uploadingGl ? (
+              <div className="loading">
+                <div className="spinner" />
+                Parsing G&amp;L file…
+              </div>
+            ) : (
+              <>
+                <div className="upload-title">Drop Gains &amp; Losses Expanded (.xlsx) here</div>
+                <div className="upload-hint">Realized closed lots · re-upload replaces prior lots</div>
+              </>
+            )}
+          </section>
         </div>
-      )}
+
+        {pdfImportResult && (
+          <div className="panel">
+            <div className="panel-header">
+              <h2>Statement import</h2>
+              <div className="desc">
+                {pdfImportResult.imported} imported · {pdfImportResult.duplicates} duplicate ·{' '}
+                {pdfImportResult.errors} error
+              </div>
+            </div>
+            <ul className="import-log">
+              {pdfImportResult.results.map((r) => (
+                <li key={r.fileName + (r.statementDate ?? '')} className={`status-${r.status}`}>
+                  <strong>{r.fileName}</strong>
+                  <span className="badge">{r.status}</span>
+                  {r.statementsImported != null && <span>{r.statementsImported} quarters</span>}
+                  {r.statementDate && <span>{r.statementDate}</span>}
+                  {r.totalBalance != null && <span>{fmtMoney(r.totalBalance, 'USD')}</span>}
+                  {r.error && <span className="neg">{r.error}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {glImportResult && (
+          <div className="panel">
+            <div className="panel-header">
+              <h2>G&amp;L import</h2>
+              <div className="desc">
+                {glImportResult.imported} imported · {glImportResult.duplicates} duplicate ·{' '}
+                {glImportResult.errors} error
+              </div>
+            </div>
+            <ul className="import-log">
+              {glImportResult.results.map((r) => (
+                <li key={r.fileName} className={`status-${r.status}`}>
+                  <strong>{r.fileName}</strong>
+                  <span className="badge">{r.status}</span>
+                  {r.lotCount != null && <span>{r.lotCount} lots</span>}
+                  {r.totalAdjustedGain != null && (
+                    <span>{fmtMoney(r.totalAdjustedGain, 'USD')}</span>
+                  )}
+                  {r.error && <span className="neg">{r.error}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {(overview?.statementImports.length || overview?.imports.length) ? (
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Import log</h2>
+                <div className="desc">
+                  {overview.statementImports.length} statement(s)
+                  {overview.imports.length ? ` · ${overview.imports.length} G&L file(s)` : ''}
+                </div>
+              </div>
+            </div>
+            <ul className="import-log">
+              {overview.statementImports.map((imp) => (
+                <li key={imp.fileHash}>
+                  <strong>{imp.fileName ?? 'statement.pdf'}</strong>
+                  <span className="badge">statement</span>
+                  <span>{imp.statementDate}</span>
+                  {imp.totalBalance != null && <span>{fmtMoney(imp.totalBalance, 'USD')}</span>}
+                  <span className="muted">
+                    {new Date(imp.importedAt).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </li>
+              ))}
+              {overview.imports.map((imp) => (
+                <li key={imp.fileHash}>
+                  <strong>{imp.fileName ?? 'GL.xlsx'}</strong>
+                  <span className="badge">G&amp;L</span>
+                  <span>{imp.statementDate}</span>
+                  {imp.totalBalance != null && (
+                    <span>{fmtMoney(imp.totalBalance, 'USD')} adj. G/L</span>
+                  )}
+                  <span className="muted">
+                    {new Date(imp.importedAt).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </Modal>
 
       {error && (
         <div className="error-box" style={{ marginBottom: 16 }}>
@@ -307,7 +374,10 @@ export function EtradePage() {
         <div className="panel">
           <div className="empty">
             {overview?.reason ??
-              'No data yet. Upload Client Statement PDFs and/or a Gains & Losses Expanded export.'}
+              'No data yet. Import Client Statement PDFs and/or a Gains & Losses Expanded export.'}{' '}
+            <button type="button" className="ghost-btn primary" onClick={() => setImportOpen(true)}>
+              Import statements
+            </button>
           </div>
         </div>
       ) : (
@@ -671,56 +741,6 @@ export function EtradePage() {
                 </div>
               </section>
             </>
-          )}
-
-          {(overview.statementImports.length > 0 || overview.imports.length > 0) && (
-            <section className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>Import log</h2>
-                  <div className="desc">
-                    {overview.statementImports.length} statement(s)
-                    {overview.imports.length ? ` · ${overview.imports.length} G&L file(s)` : ''}
-                  </div>
-                </div>
-              </div>
-              <ul className="import-log">
-                {overview.statementImports.map((imp) => (
-                  <li key={imp.fileHash}>
-                    <strong>{imp.fileName ?? 'statement.pdf'}</strong>
-                    <span className="badge">statement</span>
-                    <span>{imp.statementDate}</span>
-                    {imp.totalBalance != null && (
-                      <span>{fmtMoney(imp.totalBalance, 'USD')}</span>
-                    )}
-                    <span className="muted">
-                      {new Date(imp.importedAt).toLocaleString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
-                    </span>
-                  </li>
-                ))}
-                {overview.imports.map((imp) => (
-                  <li key={imp.fileHash}>
-                    <strong>{imp.fileName ?? 'GL.xlsx'}</strong>
-                    <span className="badge">G&amp;L</span>
-                    <span>{imp.statementDate}</span>
-                    {imp.totalBalance != null && (
-                      <span>{fmtMoney(imp.totalBalance, 'USD')} adj. G/L</span>
-                    )}
-                    <span className="muted">
-                      {new Date(imp.importedAt).toLocaleString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
           )}
         </>
       )}

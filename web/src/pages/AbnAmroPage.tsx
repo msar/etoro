@@ -23,6 +23,7 @@ import {
   type Granularity,
 } from '../api';
 import { AppNav } from '../components/AppNav';
+import { Modal } from '../components/Modal';
 import { PerformanceChart } from '../components/PerformanceChart';
 import { usePrivacy } from '../privacy';
 
@@ -42,6 +43,7 @@ export function AbnAmroPage() {
   const [uploading, setUploading] = useState(false);
   const [importResult, setImportResult] = useState<AbnImportResult | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -141,69 +143,112 @@ export function AbnAmroPage() {
         </div>
         <div className="header-actions">
           <div className="sub">Values in EUR · quarterly snapshots from bank statements</div>
+          <div className="header-actions-row">
+            <button
+              type="button"
+              className="ghost-btn primary"
+              onClick={() => setImportOpen(true)}
+            >
+              Import statements
+            </button>
+          </div>
         </div>
       </header>
 
-      <section
-        className={`upload-zone ${dragOver ? 'drag-over' : ''}`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          if (e.dataTransfer.files.length) void handleFiles(e.dataTransfer.files);
-        }}
-        onClick={() => inputRef.current?.click()}
+      <Modal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import statements"
+        description="Upload ABN AMRO Guided Investing portfolio summary PDFs. Multiple quarters can be imported at once."
       >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="application/pdf,.pdf"
-          multiple
-          hidden
-          onChange={(e) => {
-            if (e.target.files?.length) void handleFiles(e.target.files);
-            e.target.value = '';
+        <section
+          className={`upload-zone ${dragOver ? 'drag-over' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
           }}
-        />
-        {uploading ? (
-          <div className="loading">
-            <div className="spinner" />
-            Parsing PDFs…
-          </div>
-        ) : (
-          <>
-            <div className="upload-title">Drop ABN AMRO portfolio summary PDFs here</div>
-            <div className="upload-hint">or click to browse — multiple files supported</div>
-          </>
-        )}
-      </section>
-
-      {importResult && (
-        <div className="panel" style={{ marginBottom: 16 }}>
-          <div className="panel-header">
-            <h2>Import result</h2>
-            <div className="desc">
-              {importResult.imported} imported · {importResult.duplicates} duplicate ·{' '}
-              {importResult.errors} error
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            if (e.dataTransfer.files.length) void handleFiles(e.dataTransfer.files);
+          }}
+          onClick={() => inputRef.current?.click()}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files?.length) void handleFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          {uploading ? (
+            <div className="loading">
+              <div className="spinner" />
+              Parsing PDFs…
             </div>
+          ) : (
+            <>
+              <div className="upload-title">Drop ABN AMRO portfolio summary PDFs here</div>
+              <div className="upload-hint">or click to browse — multiple files supported</div>
+            </>
+          )}
+        </section>
+
+        {importResult && (
+          <div className="panel">
+            <div className="panel-header">
+              <h2>Import result</h2>
+              <div className="desc">
+                {importResult.imported} imported · {importResult.duplicates} duplicate ·{' '}
+                {importResult.errors} error
+              </div>
+            </div>
+            <ul className="import-log">
+              {importResult.results.map((r) => (
+                <li key={r.fileName + (r.statementDate ?? '')} className={`status-${r.status}`}>
+                  <strong>{r.fileName}</strong>
+                  <span className="badge">{r.status}</span>
+                  {r.statementDate && <span>{r.statementDate}</span>}
+                  {r.totalBalance != null && <span>{fmtMoney(r.totalBalance, 'EUR')}</span>}
+                  {r.error && <span className="neg">{r.error}</span>}
+                </li>
+              ))}
+            </ul>
           </div>
-          <ul className="import-log">
-            {importResult.results.map((r) => (
-              <li key={r.fileName + (r.statementDate ?? '')} className={`status-${r.status}`}>
-                <strong>{r.fileName}</strong>
-                <span className="badge">{r.status}</span>
-                {r.statementDate && <span>{r.statementDate}</span>}
-                {r.totalBalance != null && <span>{fmtMoney(r.totalBalance, 'EUR')}</span>}
-                {r.error && <span className="neg">{r.error}</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        )}
+
+        {overview?.imports && overview.imports.length > 0 && (
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Import log</h2>
+                <div className="desc">{overview.imports.length} statement(s) stored</div>
+              </div>
+            </div>
+            <ul className="import-log">
+              {overview.imports.map((imp) => (
+                <li key={imp.fileHash}>
+                  <strong>{imp.fileName ?? 'statement.pdf'}</strong>
+                  <span>{imp.statementDate}</span>
+                  {imp.totalBalance != null && <span>{fmtMoney(imp.totalBalance, 'EUR')}</span>}
+                  <span className="muted">
+                    {new Date(imp.importedAt).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Modal>
 
       {error && (
         <div className="error-box" style={{ marginBottom: 16 }}>
@@ -220,7 +265,10 @@ export function AbnAmroPage() {
         <div className="panel">
           <div className="empty">
             {overview?.reason ??
-              'No statements yet. Upload your ABN AMRO Guided Investing portfolio summaries to populate this page.'}
+              'No statements yet. Import your ABN AMRO Guided Investing portfolio summaries to populate this page.'}{' '}
+            <button type="button" className="ghost-btn primary" onClick={() => setImportOpen(true)}>
+              Import statements
+            </button>
           </div>
         </div>
       ) : (
@@ -484,30 +532,6 @@ export function AbnAmroPage() {
             </div>
           </section>
 
-          <section className="panel">
-            <div className="panel-header">
-              <div>
-                <h2>Import log</h2>
-                <div className="desc">{overview.imports.length} statement(s) stored</div>
-              </div>
-            </div>
-            <ul className="import-log">
-              {overview.imports.map((imp) => (
-                <li key={imp.fileHash}>
-                  <strong>{imp.fileName ?? 'statement.pdf'}</strong>
-                  <span>{imp.statementDate}</span>
-                  {imp.totalBalance != null && <span>{fmtMoney(imp.totalBalance, 'EUR')}</span>}
-                  <span className="muted">
-                    {new Date(imp.importedAt).toLocaleString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
         </>
       )}
     </div>

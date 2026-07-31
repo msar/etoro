@@ -40,6 +40,9 @@ import { getBestPerformance, type Granularity } from './services/performance.js'
 import { getPortfolio } from './services/portfolio.js';
 import { getIncomeReport } from './services/income.js';
 import { getInstrumentPerformance } from './services/instrumentPerformance.js';
+import { getGainBreakdown } from './services/gainBreakdown.js';
+import { getPortfolioAnalysis } from './services/portfolioAnalysis.js';
+import { getProfitBreakdown } from './services/profitBreakdown.js';
 import { getAccountStats } from './services/stats.js';
 import { getSyncStatus, runSync } from './services/sync.js';
 import { earliestStoredTradeDate, getTrades } from './services/trades.js';
@@ -245,6 +248,33 @@ app.get(
     requireEtoroCredentials();
     const boot = await getBootstrap();
     res.json(await getAccountStats(boot.environment));
+  }),
+);
+
+app.get(
+  '/api/profit-breakdown',
+  handle(async (_req, res) => {
+    requireEtoroCredentials();
+    const boot = await getBootstrap();
+    res.json(await getProfitBreakdown(boot.environment));
+  }),
+);
+
+app.get(
+  '/api/gain-breakdown',
+  handle(async (_req, res) => {
+    requireEtoroCredentials();
+    const boot = await getBootstrap();
+    res.json(await getGainBreakdown(boot.username, boot.environment));
+  }),
+);
+
+app.get(
+  '/api/portfolio-analysis',
+  handle(async (_req, res) => {
+    requireEtoroCredentials();
+    const boot = await getBootstrap();
+    res.json(await getPortfolioAnalysis(boot.environment));
   }),
 );
 

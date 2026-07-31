@@ -8,9 +8,13 @@ import { HoldingsTable } from '../components/HoldingsTable';
 import { IncomePanel } from '../components/IncomePanel';
 import { InstrumentPerformanceTable } from '../components/InstrumentPerformanceTable';
 import { LoginForm } from '../components/LoginForm';
+import { GainBreakdownDrilldown } from '../components/GainBreakdownDrilldown';
+import { Modal } from '../components/Modal';
 import { PerformanceChart } from '../components/PerformanceChart';
+import { PortfolioAnalysis } from '../components/PortfolioAnalysis';
+import { ProfitBreakdownDrilldown } from '../components/ProfitBreakdownDrilldown';
 import { StatsPanel } from '../components/StatsPanel';
-import { SummaryCards } from '../components/SummaryCards';
+import { SummaryCards, type BreakdownKind } from '../components/SummaryCards';
 
 function formatSyncedAt(iso: string | null | undefined): string {
   if (!iso) return '';
@@ -31,6 +35,8 @@ export function EtoroPage() {
   const [error, setError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [sessionKey, setSessionKey] = useState(0);
+  const [importOpen, setImportOpen] = useState(false);
+  const [openBreakdown, setOpenBreakdown] = useState<BreakdownKind | null>(null);
 
   const loadDashboard = useCallback(async (cancelled: () => boolean) => {
     setPhase('connecting');
@@ -198,11 +204,56 @@ export function EtoroPage() {
           <div className="sub">
             Deposits count as investment, never as gain — all percentages are deposit-adjusted.
           </div>
-          <button type="button" className="ghost-btn" onClick={onLogout}>
-            Change credentials
-          </button>
+          <div className="header-actions-row">
+            <button
+              type="button"
+              className="ghost-btn primary"
+              onClick={() => setImportOpen(true)}
+            >
+              Import statements
+            </button>
+            <button type="button" className="ghost-btn" onClick={onLogout}>
+              Change credentials
+            </button>
+          </div>
         </div>
       </header>
+
+      <Modal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import statements"
+        description="eToro does not use statement PDFs. Portfolio history is synced live via the eToro Public API."
+      >
+        <div className="notice">
+          Connect with your API key and user key (Settings → Trading → API). Data refreshes on each
+          visit; use Change credentials to rotate keys stored on this machine.
+        </div>
+        {boot.sync?.configured && (
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Sync status</h2>
+                <div className="desc">Local history store</div>
+              </div>
+            </div>
+            <ul className="import-log">
+              <li>
+                <strong>History since</strong>
+                <span>{storedSince ?? '—'}</span>
+              </li>
+              <li>
+                <strong>Last synced</strong>
+                <span>{lastSynced ? formatSyncedAt(lastSynced) : '—'}</span>
+              </li>
+              <li>
+                <strong>Daily snapshots</strong>
+                <span>{boot.sync.balanceSnapshotCount ?? 0}</span>
+              </li>
+            </ul>
+          </div>
+        )}
+      </Modal>
 
       {syncError && (
         <div className="notice" style={{ marginBottom: 16 }}>
@@ -210,8 +261,15 @@ export function EtoroPage() {
         </div>
       )}
 
-      <SummaryCards />
-      <StatsPanel />
+      <SummaryCards openBreakdown={openBreakdown} onOpenBreakdown={setOpenBreakdown} />
+      <StatsPanel openBreakdown={openBreakdown} onOpenBreakdown={setOpenBreakdown} />
+      {openBreakdown === 'profit' && (
+        <ProfitBreakdownDrilldown onClose={() => setOpenBreakdown(null)} />
+      )}
+      {openBreakdown === 'gain' && (
+        <GainBreakdownDrilldown onClose={() => setOpenBreakdown(null)} />
+      )}
+      <PortfolioAnalysis />
       <PerformanceChart />
       <GainHeatmap />
       <EquityChart />

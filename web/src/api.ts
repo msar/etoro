@@ -207,6 +207,99 @@ export interface IncomeReport {
   topDividendPayers: { name: string; total: number }[];
 }
 
+export interface ProfitComponent {
+  key: 'realized' | 'dividends' | 'unrealized' | 'residual';
+  label: string;
+  amount: number;
+  description: string;
+}
+
+export interface ProfitContributor {
+  key: string;
+  symbol: string | null;
+  name: string | null;
+  imageUrl: string | null;
+  instrumentId: number;
+  realized: number;
+  unrealized: number;
+  total: number;
+  open: boolean;
+}
+
+export interface ProfitYearRow {
+  year: string;
+  realizedProfit: number;
+  dividendsNet: number;
+  fees: number;
+}
+
+export interface ProfitBreakdown {
+  available: boolean;
+  reason?: string;
+  currency: string;
+  since: string | null;
+  currentEquity: number | null;
+  totalDeposits: number;
+  totalWithdrawals: number;
+  netDeposits: number;
+  allTimeProfit: number | null;
+  components: ProfitComponent[];
+  feesTotal: number;
+  winners: ProfitContributor[];
+  losers: ProfitContributor[];
+  years: ProfitYearRow[];
+}
+
+export interface GainYearRow {
+  year: string;
+  gain: number;
+  cumulativeGain: number;
+  netFlow: number;
+  endEquity: number | null;
+}
+
+export interface GainBreakdown {
+  available: boolean;
+  reason?: string;
+  since: string | null;
+  totalGain: number | null;
+  cagr: number | null;
+  source: 'etoro' | 'derived';
+  years: GainYearRow[];
+  bestYear: { date: string; gain: number } | null;
+  worstYear: { date: string; gain: number } | null;
+}
+
+export type CheckStatus = 'ok' | 'watch' | 'action';
+
+export interface AnalysisCheck {
+  id: string;
+  title: string;
+  status: CheckStatus;
+  detail: string;
+  recommendation: string;
+}
+
+export interface AssetMixSlice {
+  bucket: string;
+  value: number;
+  pct: number;
+}
+
+export interface PortfolioAnalysis {
+  available: boolean;
+  reason?: string;
+  generatedAt: string;
+  currency: string;
+  equity: number | null;
+  holdingsCount: number;
+  cashPct: number | null;
+  score: number | null;
+  checks: AnalysisCheck[];
+  assetMix: AssetMixSlice[];
+  disclaimer: string;
+}
+
 // ---------------------------------------------------------------------------
 // ABN AMRO
 // ---------------------------------------------------------------------------
@@ -588,6 +681,9 @@ export const api = {
   portfolio: () => get<PortfolioSummary>('/api/portfolio'),
   trades: (from?: string) => get<{ items: Trade[] }>(`/api/trades${from ? `?from=${from}` : ''}`),
   stats: () => get<AccountStats>('/api/stats'),
+  profitBreakdown: () => get<ProfitBreakdown>('/api/profit-breakdown'),
+  gainBreakdown: () => get<GainBreakdown>('/api/gain-breakdown'),
+  portfolioAnalysis: () => get<PortfolioAnalysis>('/api/portfolio-analysis'),
   instrumentPerformance: () => get<InstrumentPerformanceReport>('/api/instrument-performance'),
   income: () => get<IncomeReport>('/api/income'),
   abnOverview: () => get<AbnOverview>('/api/abnamro/overview'),

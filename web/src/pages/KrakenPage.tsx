@@ -17,6 +17,7 @@ import {
   type KrakenOverview,
 } from '../api';
 import { AppNav } from '../components/AppNav';
+import { Modal } from '../components/Modal';
 import { PerformanceChart } from '../components/PerformanceChart';
 import { usePrivacy } from '../privacy';
 
@@ -31,7 +32,7 @@ export function KrakenPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [showForm, setShowForm] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [form, setForm] = useState({
     apiKey: '',
     apiSecret: '',
@@ -49,7 +50,7 @@ export function KrakenPage() {
         krakenConfigured: status.krakenConfigured,
         supabaseConfigured: status.supabaseConfigured,
       });
-      setShowForm(!status.krakenConfigured);
+      if (!status.krakenConfigured) setImportOpen(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {
@@ -85,7 +86,7 @@ export function KrakenPage() {
         payload.supabaseServiceRoleKey = form.supabaseServiceRoleKey;
       }
       await api.saveKrakenCredentials(payload);
-      setShowForm(false);
+      setImportOpen(false);
       setForm((f) => ({ ...f, apiKey: '', apiSecret: '', supabaseServiceRoleKey: '' }));
       await api.krakenSync();
       await refresh();
@@ -145,34 +146,52 @@ export function KrakenPage() {
           <div className="sub">Spot balances via REST API · values in USD</div>
         </div>
         <div className="header-actions">
-          {credStatus?.krakenConfigured && (
-            <>
-              <button type="button" className="ghost-btn" onClick={() => void onSync()} disabled={syncing}>
-                {syncing ? 'Syncing…' : 'Sync now'}
-              </button>
-              <button type="button" className="ghost-btn" onClick={() => setShowForm((v) => !v)}>
-                {showForm ? 'Cancel' : 'Change keys'}
-              </button>
-              <button type="button" className="ghost-btn danger" onClick={() => void onDisconnect()}>
-                Disconnect
-              </button>
-            </>
-          )}
+          <div className="header-actions-row">
+            <button
+              type="button"
+              className="ghost-btn primary"
+              onClick={() => setImportOpen(true)}
+            >
+              Import statements
+            </button>
+            {credStatus?.krakenConfigured && (
+              <>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => void onSync()}
+                  disabled={syncing}
+                >
+                  {syncing ? 'Syncing…' : 'Sync now'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-btn danger"
+                  onClick={() => void onDisconnect()}
+                >
+                  Disconnect
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      {error && <div className="error-box">{error}</div>}
-
-      {(showForm || !credStatus?.krakenConfigured) && (
+      <Modal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        closable={Boolean(credStatus?.krakenConfigured)}
+        title="Import statements"
+        description="Kraken does not use statement PDFs. Connect an API key to sync spot balances and deposits from the ledger."
+      >
+        <div className="notice">
+          Create a key with <strong>Query funds</strong> (and Query ledger if available) at{' '}
+          <a href="https://www.kraken.com/u/security/api" target="_blank" rel="noreferrer">
+            Kraken → Security → API
+          </a>
+          . Keys are stored only in <code>server/data/credentials.json</code>.
+        </div>
         <form className="login-card inline-form" onSubmit={onSaveCredentials}>
-          <h2>Connect Kraken</h2>
-          <p className="login-lead">
-            Create a key with <strong>Query funds</strong> (and Query ledger if available) at{' '}
-            <a href="https://www.kraken.com/u/security/api" target="_blank" rel="noreferrer">
-              Kraken → Security → API
-            </a>
-            . Keys are stored only in <code>server/data/credentials.json</code>.
-          </p>
           <fieldset>
             <legend>Kraken API</legend>
             <label>
@@ -235,7 +254,9 @@ export function KrakenPage() {
             {saving ? 'Validating…' : 'Save & sync'}
           </button>
         </form>
-      )}
+      </Modal>
+
+      {error && <div className="error-box">{error}</div>}
 
       {loading ? (
         <div className="loading" style={{ paddingTop: 60 }}>
