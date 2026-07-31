@@ -45,6 +45,7 @@ import { getPortfolioAnalysis } from './services/portfolioAnalysis.js';
 import { getProfitBreakdown } from './services/profitBreakdown.js';
 import { getAccountStats } from './services/stats.js';
 import { getSyncStatus, runSync } from './services/sync.js';
+import { importEtoroHistoryUploads } from './services/etoroHistoryImport.js';
 import { earliestStoredTradeDate, getTrades } from './services/trades.js';
 
 const app = express();
@@ -83,6 +84,19 @@ function spreadsheetOnly(
   }
 }
 
+function csvOnly(
+  _req: Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback,
+) {
+  const name = file.originalname.toLowerCase();
+  if (name.endsWith('.csv') || file.mimetype === 'text/csv' || file.mimetype === 'application/vnd.ms-excel') {
+    cb(null, true);
+  } else {
+    cb(new Error('Only .csv files are accepted'));
+  }
+}
+
 const uploadPdf = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024, files: 30 },
@@ -93,6 +107,12 @@ const uploadSheet = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024, files: 10 },
   fileFilter: spreadsheetOnly,
+});
+
+const uploadCsv = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 40 * 1024 * 1024, files: 6 },
+  fileFilter: csvOnly,
 });
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -205,6 +225,26 @@ app.get(
   handle(async (_req, res) => {
     requireEtoroCredentials();
     res.json(await getSyncStatus());
+  }),
+);
+
+app.post(
+  '/api/etoro/history/import',
+  uploadCsv.array('files', 6),
+  handle(async (req, res) => {
+    requireEtoroCredentials();
+    const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+    if (!files.length) {
+      res.status(400).json({
+        error:
+          'Upload Account Statement CSVs (Account Activity, Closed Positions, and optionally Dividends).',
+      });
+      return;
+    }
+    const result = await importEtoroHistoryUploads(
+      files.map((f) => ({ originalName: f.originalname, buffer: f.buffer })),
+    );
+    res.json(result);
   }),
 );
 

@@ -207,6 +207,18 @@ export interface IncomeReport {
   topDividendPayers: { name: string; total: number }[];
 }
 
+export interface EtoroHistoryImportResult {
+  gcid: number;
+  username: string | null;
+  balanceCutoff: string;
+  balancesImported: number;
+  balanceDateRange: { from: string; to: string } | null;
+  tradesImported: number;
+  dividendsImported: number;
+  warnings: string[];
+  classified: Record<string, string>;
+}
+
 export interface ProfitComponent {
   key: 'realized' | 'dividends' | 'unrealized' | 'residual';
   label: string;
@@ -672,6 +684,11 @@ export const api = {
   bootstrap: () => get<Bootstrap>('/api/bootstrap'),
   sync: () => postJson<SyncResult>('/api/sync'),
   syncStatus: () => get<SyncStatus>('/api/sync/status'),
+  etoroImportHistory: (files: File[]) => {
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    return postForm<EtoroHistoryImportResult>('/api/etoro/history/import', form);
+  },
   performance: (granularity: Granularity, from?: string, to?: string) =>
     get<PerformanceSeries>(
       `/api/performance?granularity=${granularity}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`,

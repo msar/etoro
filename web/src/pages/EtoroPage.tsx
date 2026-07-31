@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api, type Bootstrap, type SyncResult } from '../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api, type Bootstrap, type EtoroHistoryImportResult, type SyncResult } from '../api';
 import { AllocationChart } from '../components/AllocationChart';
 import { AppNav } from '../components/AppNav';
 import { EquityChart } from '../components/EquityChart';
@@ -37,6 +37,12 @@ export function EtoroPage() {
   const [sessionKey, setSessionKey] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
   const [openBreakdown, setOpenBreakdown] = useState<BreakdownKind | null>(null);
+  const [uploadingHistory, setUploadingHistory] = useState(false);
+  const [historyDragOver, setHistoryDragOver] = useState(false);
+  const [historyImportResult, setHistoryImportResult] =
+    useState<EtoroHistoryImportResult | null>(null);
+  const [historyImportError, setHistoryImportError] = useState<string | null>(null);
+  const historyInputRef = useRef<HTMLInputElement>(null);
 
   const loadDashboard = useCallback(async (cancelled: () => boolean) => {
     setPhase('connecting');
@@ -119,6 +125,32 @@ export function EtoroPage() {
     setSyncError(null);
     setError(null);
     setPhase('login');
+  }
+
+  async function handleHistoryFiles(files: FileList | File[]) {
+    const csvs = [...files].filter(
+      (f) =>
+        f.type === 'text/csv' ||
+        f.type === 'application/vnd.ms-excel' ||
+        f.name.toLowerCase().endsWith('.csv'),
+    );
+    if (!csvs.length) {
+      setHistoryImportError('Please select Account Statement CSV files (.csv)');
+      return;
+    }
+    setUploadingHistory(true);
+    setHistoryImportError(null);
+    setHistoryImportResult(null);
+    try {
+      const result = await api.etoroImportHistory(csvs);
+      setHistoryImportResult(result);
+      const status = await api.syncStatus();
+      setBoot((b) => (b ? { ...b, sync: status } : b));
+    } catch (err) {
+      setHistoryImportError(err instanceof Error ? err.message : 'History import failed');
+    } finally {
+      setUploadingHistory(false);
+    }
   }
 
   if (phase === 'login') {
@@ -223,18 +255,121 @@ export function EtoroPage() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         title="Import statements"
-        description="eToro does not use statement PDFs. Portfolio history is synced live via the eToro Public API."
+        description="The live API keeps ~12 months of mark-to-market history. Older equity, closed trades, and dividends come from your Account Statement export."
+        wide
       >
         <div className="notice">
-          Connect with your API key and user key (Settings → Trading → API). Data refreshes on each
-          visit; use Change credentials to rotate keys stored on this machine.
+          <strong>How to export from eToro</strong>
+          <ol className="import-steps">
+            <li>
+              In eToro, open <strong>Account Statement</strong> and download the full period you care
+              about (XLS).
+            </li>
+            <li>
+              Save each sheet as CSV. Keep recognizable names, for example:
+              <ul>
+                <li>
+                  <code>actividaddelacuenta.csv</code> / Account Activity — balance history
+                </li>
+                <li>
+                  <code>posicionescerradas.csv</code> / Closed Positions — realized trades
+                </li>
+                <li>
+                  <code>dividendos.csv</code> / Dividends — optional, powers the income panel
+                </li>
+              </ul>
+            </li>
+            <li>
+              Upload the CSVs below. Balances older than ~360 days are imported; the recent year stays
+              owned by live API sync.
+            </li>
+          </ol>
         </div>
+
+        <section
+          className={`upload-zone ${historyDragOver ? 'drag-over' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setHistoryDragOver(true);
+          }}
+          onDragLeave={() => setHistoryDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setHistoryDragOver(false);
+            if (e.dataTransfer.files.length) void handleHistoryFiles(e.dataTransfer.files);
+          }}
+          onClick={() => historyInputRef.current?.click()}
+        >
+          <input
+            ref={historyInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files?.length) void handleHistoryFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          {uploadingHistory ? (
+            <div className="loading">
+              <div className="spinner" />
+              Importing Account Statement…
+            </div>
+          ) : (
+            <>
+              <div className="upload-title">Drop Account Statement CSVs here</div>
+              <div className="upload-hint">
+                Account Activity · Closed Positions · Dividends (optional) — multiple files supported
+              </div>
+            </>
+          )}
+        </section>
+
+        {historyImportError && <div className="error-box">{historyImportError}</div>}
+
+        {historyImportResult && (
+          <div className="panel">
+            <div className="panel-header">
+              <h2>Import result</h2>
+              <div className="desc">
+                {historyImportResult.balancesImported} balance days ·{' '}
+                {historyImportResult.tradesImported} closed trades ·{' '}
+                {historyImportResult.dividendsImported} dividends
+              </div>
+            </div>
+            <ul className="import-log">
+              {Object.entries(historyImportResult.classified).map(([name, kind]) => (
+                <li key={name} className="status-imported">
+                  <strong>{name}</strong>
+                  <span className="badge">{kind}</span>
+                </li>
+              ))}
+              {historyImportResult.balanceDateRange && (
+                <li>
+                  <strong>Balance range</strong>
+                  <span>
+                    {historyImportResult.balanceDateRange.from} →{' '}
+                    {historyImportResult.balanceDateRange.to}
+                  </span>
+                  <span className="muted">before {historyImportResult.balanceCutoff}</span>
+                </li>
+              )}
+              {historyImportResult.warnings.map((w) => (
+                <li key={w} className="status-duplicate">
+                  <span className="neg">{w}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {boot.sync?.configured && (
           <div className="panel">
             <div className="panel-header">
               <div>
                 <h2>Sync status</h2>
-                <div className="desc">Local history store</div>
+                <div className="desc">Imported history + live API window</div>
               </div>
             </div>
             <ul className="import-log">
