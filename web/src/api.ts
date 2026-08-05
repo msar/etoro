@@ -267,6 +267,8 @@ export interface GainYearRow {
   gain: number;
   cumulativeGain: number;
   netFlow: number;
+  absoluteProfit: number;
+  startEquity: number | null;
   endEquity: number | null;
 }
 

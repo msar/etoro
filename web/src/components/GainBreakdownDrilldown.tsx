@@ -18,13 +18,26 @@ function GainTooltip({
   payload,
 }: {
   active?: boolean;
-  payload?: { payload: { year: string; gain: number; cumulativeGain: number } }[];
+  payload?: {
+    payload: {
+      year: string;
+      gain: number;
+      cumulativeGain: number;
+      absoluteProfit: number;
+    };
+  }[];
 }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
   return (
     <div className="tooltip">
       <div className="t-date">{p.year}</div>
+      <div className="t-row">
+        <span className="t-key">Absolute profit</span>
+        <span className={p.absoluteProfit >= 0 ? 'pos' : 'neg'}>
+          {fmtMoney(p.absoluteProfit)}
+        </span>
+      </div>
       <div className="t-row">
         <span className="t-key">Year gain</span>
         <span className={p.gain >= 0 ? 'pos' : 'neg'}>{fmtPct(p.gain)}</span>
@@ -35,6 +48,39 @@ function GainTooltip({
       </div>
     </div>
   );
+}
+
+function AbsoluteProfitTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { payload: { year: string; absoluteProfit: number; netFlow: number } }[];
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  return (
+    <div className="tooltip">
+      <div className="t-date">{p.year}</div>
+      <div className="t-row">
+        <span className="t-key">Absolute profit</span>
+        <span className={p.absoluteProfit >= 0 ? 'pos' : 'neg'}>
+          {fmtMoney(p.absoluteProfit)}
+        </span>
+      </div>
+      <div className="t-row">
+        <span className="t-key">Net deposits</span>
+        <span className={p.netFlow >= 0 ? '' : 'neg'}>{fmtMoney(p.netFlow)}</span>
+      </div>
+    </div>
+  );
+}
+
+function equityRange(start: number | null, end: number | null): string {
+  if (start === null && end === null) return '—';
+  if (start === null) return `— → ${fmtMoney(end!)}`;
+  if (end === null) return `${fmtMoney(start)} → —`;
+  return `${fmtMoney(start)} → ${fmtMoney(end)}`;
 }
 
 export function GainBreakdownDrilldown({ onClose }: { onClose: () => void }) {
@@ -77,7 +123,9 @@ export function GainBreakdownDrilldown({ onClose }: { onClose: () => void }) {
             All-time gain is a <strong>deposit-adjusted</strong> return: money you add is not counted
             as performance. Each year&apos;s gain is computed independently, then the years{' '}
             <strong>compound multiplicatively</strong> — e.g. +10% then +20% is 1.10 × 1.20 − 1 =
-            +32%, not +30%. Source:{' '}
+            +32%, not +30%. Absolute profit is what the account earned that year after removing
+            deposits and withdrawals; deposits change the base that compounds next year, not the
+            gain itself. Source:{' '}
             {data.source === 'etoro' ? 'eToro official gain series' : 'derived from equity history'}.
             {data.since ? ` History since ${data.since}.` : ''}
           </p>
@@ -141,6 +189,43 @@ export function GainBreakdownDrilldown({ onClose }: { onClose: () => void }) {
             </ResponsiveContainer>
           )}
 
+          {!masked && data.years.length > 0 && (
+            <>
+              <h4 className="drilldown-subtitle">Absolute profit by year</h4>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={data.years} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                  <CartesianGrid stroke="#232e3e" strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="year"
+                    tick={{ fill: '#8698ad', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#232e3e' }}
+                  />
+                  <YAxis
+                    tickFormatter={(v: number) => fmtMoney(v)}
+                    tick={{ fill: '#8698ad', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={64}
+                  />
+                  <Tooltip
+                    content={<AbsoluteProfitTooltip />}
+                    cursor={{ fill: 'rgba(79,157,255,0.06)' }}
+                  />
+                  <ReferenceLine y={0} stroke="#3a4a60" />
+                  <Bar dataKey="absoluteProfit" radius={[3, 3, 0, 0]}>
+                    {data.years.map((y) => (
+                      <Cell
+                        key={y.year}
+                        fill={y.absoluteProfit >= 0 ? '#2ecc8f' : '#ff5c72'}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </>
+          )}
+
           {data.years.length > 0 && (
             <>
               <h4 className="drilldown-subtitle">Compounding ladder</h4>
@@ -148,29 +233,34 @@ export function GainBreakdownDrilldown({ onClose }: { onClose: () => void }) {
                 <thead>
                   <tr>
                     <th>Year</th>
+                    <th>Absolute profit</th>
                     <th>Year gain</th>
                     <th>Cumulative</th>
-                    <th>Net flow</th>
-                    <th>End equity</th>
+                    <th>Net deposits</th>
+                    <th>Start → End equity</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.years.map((y) => (
                     <tr key={y.year}>
                       <td>{y.year}</td>
+                      <td className={y.absoluteProfit >= 0 ? 'pos' : 'neg'}>
+                        {fmtMoney(y.absoluteProfit)}
+                      </td>
                       <td className={y.gain >= 0 ? 'pos' : 'neg'}>{fmtPct(y.gain)}</td>
                       <td className={y.cumulativeGain >= 0 ? 'pos' : 'neg'}>
                         {fmtPct(y.cumulativeGain)}
                       </td>
                       <td className={y.netFlow >= 0 ? '' : 'neg'}>{fmtMoney(y.netFlow)}</td>
-                      <td>{y.endEquity !== null ? fmtMoney(y.endEquity) : '—'}</td>
+                      <td>{equityRange(y.startEquity, y.endEquity)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="chart-note">
-                Cumulative after year N = (1 + g₁) × (1 + g₂) × … × (1 + gₙ) − 1. Net flow is
-                deposits minus withdrawals that year (not part of the gain).
+                Absolute profit = end equity − start equity − net deposits. Cumulative after year N =
+                (1 + g₁) × (1 + g₂) × … × (1 + gₙ) − 1. Deposits expand the capital base that
+                compounds next year; they are not part of the gain.
               </div>
             </>
           )}

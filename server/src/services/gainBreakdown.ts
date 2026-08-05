@@ -12,6 +12,10 @@ export interface GainYearRow {
   cumulativeGain: number;
   /** Net external flow (deposits − withdrawals) during this year */
   netFlow: number;
+  /** Equity change minus net flow: endEquity − startEquity − netFlow */
+  absoluteProfit: number;
+  /** Equity just before the year (or first in-year snapshot if series starts that year) */
+  startEquity: number | null;
   /** Equity at the last stored snapshot of this year */
   endEquity: number | null;
 }
@@ -59,23 +63,49 @@ export async function getGainBreakdown(
       } satisfies GainBreakdown;
     }
 
-    // Per-year deposit context from the stored equity history.
+    // Per-year deposit / absolute-profit context from stored equity history.
+    // startEquity = last snapshot before the year, else first in-year snapshot.
+    // absoluteProfit = endEquity − startEquity − netFlow.
     const flowByYear = new Map<string, number>();
     const endEquityByYear = new Map<string, number>();
+    const startEquityByYear = new Map<string, number>();
+    const firstInYearByYear = new Map<string, number>();
+    let prevTotal: number | null = null;
+    let prevYear: string | null = null;
+
     for (const p of equity?.points ?? []) {
       const y = p.date.slice(0, 4);
       flowByYear.set(y, (flowByYear.get(y) ?? 0) + p.netFlow);
       endEquityByYear.set(y, p.total); // points are date-ordered; last write wins
+      if (!firstInYearByYear.has(y)) {
+        firstInYearByYear.set(y, p.total);
+        // Carry forward the last equity from before this year (if any).
+        if (prevYear !== null && prevYear !== y && prevTotal !== null) {
+          startEquityByYear.set(y, prevTotal);
+        }
+      }
+      prevTotal = p.total;
+      prevYear = y;
     }
 
     const years: GainYearRow[] = series.points.map((p) => {
       const year = p.date.slice(0, 4);
+      const netFlow = flowByYear.get(year) ?? 0;
+      const endEquity = endEquityByYear.get(year) ?? null;
+      const startEquity =
+        startEquityByYear.get(year) ?? firstInYearByYear.get(year) ?? null;
+      const absoluteProfit =
+        endEquity !== null && startEquity !== null
+          ? endEquity - startEquity - netFlow
+          : 0;
       return {
         year,
         gain: p.gain,
         cumulativeGain: p.cumulativeGain,
-        netFlow: flowByYear.get(year) ?? 0,
-        endEquity: endEquityByYear.get(year) ?? null,
+        netFlow,
+        absoluteProfit,
+        startEquity,
+        endEquity,
       };
     });
 
