@@ -13,6 +13,7 @@ import {
   logoutCredentials,
   requireEtoroCredentials,
   requireKrakenCredentials,
+  restoreFromSupabase,
 } from './credentialsService.js';
 import { EtoroApiError } from './errors.js';
 import { isSupabaseConfigured } from './supabase.js';
@@ -163,6 +164,18 @@ app.post(
       etoroApiKey: String(body.etoroApiKey ?? ''),
       etoroUserKey: String(body.etoroUserKey ?? ''),
       historyBackend: body.historyBackend != null ? String(body.historyBackend) : 'local',
+      supabaseUrl: String(body.supabaseUrl ?? ''),
+      supabaseServiceRoleKey: String(body.supabaseServiceRoleKey ?? ''),
+    });
+    res.json({ ok: true, ...status });
+  }),
+);
+
+app.post(
+  '/api/credentials/restore',
+  handle(async (req, res) => {
+    const body = req.body ?? {};
+    const status = await restoreFromSupabase({
       supabaseUrl: String(body.supabaseUrl ?? ''),
       supabaseServiceRoleKey: String(body.supabaseServiceRoleKey ?? ''),
     });
@@ -472,7 +485,7 @@ app.post(
 app.delete(
   '/api/kraken/credentials',
   handle(async (_req, res) => {
-    res.json({ ok: true, ...disconnectKraken() });
+    res.json({ ok: true, ...(await disconnectKraken()) });
   }),
 );
 

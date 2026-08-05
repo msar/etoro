@@ -20,6 +20,12 @@ import { loadEnabledBrokers, persistEnabledBrokers } from './preferences.js';
 import { clearSchemaMissing } from './schemaState.js';
 import { probeSupabase } from './supabase.js';
 import { findAbnAccountId } from './services/abnamro.js';
+import {
+  listBrokersFromHistory,
+  pullAppConnection,
+  pushAppConnection,
+  unionBrokerIds,
+} from './services/appConnection.js';
 import { findEtradeAccountId } from './services/etrade.js';
 import { findKrakenAccountId } from './services/kraken.js';
 
@@ -146,6 +152,78 @@ export async function configureCredentials(input: {
   resetHistoryClient();
   clearSchemaMissing();
   cacheClear();
+  await pushAppConnection();
+
+  return getCredentialsStatus();
+}
+
+/**
+ * Restore eToro/Kraken keys + enabled brokers from Supabase app_connection.
+ * Bootstrap requires only Project URL + service role key.
+ */
+export async function restoreFromSupabase(input: {
+  supabaseUrl: string;
+  supabaseServiceRoleKey: string;
+}): Promise<CredentialsStatus> {
+  const supabaseUrl = input.supabaseUrl.trim().replace(/\/$/, '');
+  const supabaseServiceRoleKey = input.supabaseServiceRoleKey.trim();
+
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    throw new EtoroApiError('Supabase URL and service role key are required.', 400);
+  }
+  if (!/^https:\/\/.+\.supabase\.co$/i.test(supabaseUrl)) {
+    throw new EtoroApiError(
+      'Supabase URL should look like https://YOUR_PROJECT.supabase.co',
+      400,
+    );
+  }
+
+  try {
+    await probeSupabase(supabaseUrl, supabaseServiceRoleKey);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Invalid Supabase credentials';
+    throw new EtoroApiError(msg, 401);
+  }
+
+  let remote;
+  try {
+    remote = await pullAppConnection(supabaseUrl, supabaseServiceRoleKey);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Could not read connection backup';
+    throw new EtoroApiError(msg, 400);
+  }
+
+  if (!remote?.etoroApiKey || !remote.etoroUserKey) {
+    throw new EtoroApiError(
+      'No connection backup found in this Supabase project. Save eToro keys once with Supabase history enabled (after running migration 002), then restore will work.',
+      404,
+    );
+  }
+
+  await validateEtoroKeys(remote.etoroApiKey, remote.etoroUserKey);
+
+  const historyBrokers = await listBrokersFromHistory(supabaseUrl, supabaseServiceRoleKey);
+  const keyBacked: BrokerId[] = ['etoro'];
+  if (remote.krakenApiKey && remote.krakenApiSecret) keyBacked.push('kraken');
+
+  const enabled = unionBrokerIds(remote.enabledBrokers, historyBrokers, keyBacked);
+
+  saveCredentials({
+    historyBackend: 'supabase',
+    supabaseUrl,
+    supabaseServiceRoleKey,
+    etoroApiKey: remote.etoroApiKey,
+    etoroUserKey: remote.etoroUserKey,
+    ...(remote.krakenApiKey && remote.krakenApiSecret
+      ? { krakenApiKey: remote.krakenApiKey, krakenApiSecret: remote.krakenApiSecret }
+      : {}),
+    enabledBrokers: enabled,
+  });
+  persistEnabledBrokers(enabled);
+  resetHistoryClient();
+  clearSchemaMissing();
+  cacheClear();
+  await pushAppConnection();
 
   return getCredentialsStatus();
 }
@@ -211,15 +289,24 @@ async function detectConnectedBrokers(): Promise<BrokerId[]> {
 
 /**
  * Resolve which brokers appear on Overview/nav.
- * Legacy credentials without enabledBrokers → auto-enable currently connected ones.
+ * Legacy credentials without enabledBrokers → auto-enable currently connected ones
+ * (plus any brokers present in history when using Supabase).
+ * Explicit empty [] after the user removed all brokers is intentional — do not re-seed.
  */
 export async function getBrokersStatus(): Promise<BrokersStatus> {
   const connected = await detectConnectedBrokers();
   let enabled = loadEnabledBrokers();
 
   if (enabled === null) {
-    enabled = connected.length ? [...connected] : [];
+    let historyBrokers: BrokerId[] = [];
+    try {
+      historyBrokers = await listBrokersFromHistory();
+    } catch {
+      // ignore
+    }
+    enabled = unionBrokerIds(connected, historyBrokers);
     persistEnabledBrokers(enabled);
+    void pushAppConnection();
   }
 
   return {
@@ -234,6 +321,7 @@ export async function enableBroker(id: string): Promise<BrokersStatus> {
   const status = await getBrokersStatus();
   if (!status.enabled.includes(id)) {
     persistEnabledBrokers([...status.enabled, id]);
+    await pushAppConnection();
   }
   return getBrokersStatus();
 }
@@ -246,6 +334,7 @@ export async function disableBroker(id: string): Promise<BrokersStatus> {
     clearKrakenCredentials();
     cacheClear();
   }
+  await pushAppConnection();
   return getBrokersStatus();
 }
 
@@ -320,14 +409,16 @@ export async function configureKrakenCredentials(input: {
   resetHistoryClient();
   clearSchemaMissing();
   cacheClear();
+  await pushAppConnection();
 
   return getCredentialsStatus();
 }
 
-export function disconnectKraken(): CredentialsStatus {
+export async function disconnectKraken(): Promise<CredentialsStatus> {
   clearKrakenCredentials();
   const enabled = loadEnabledBrokers();
   if (enabled) persistEnabledBrokers(enabled.filter((b) => b !== 'kraken'));
   cacheClear();
+  await pushAppConnection();
   return getCredentialsStatus();
 }

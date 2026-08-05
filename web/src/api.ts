@@ -609,6 +609,11 @@ export interface CredentialsInput {
   supabaseServiceRoleKey?: string;
 }
 
+export interface RestoreCredentialsInput {
+  supabaseUrl: string;
+  supabaseServiceRoleKey: string;
+}
+
 export interface CredentialsStatus {
   configured: boolean;
   etoroConfigured: boolean;
@@ -687,6 +692,8 @@ export const api = {
   credentialsStatus: () => get<CredentialsStatus>('/api/credentials/status'),
   saveCredentials: (creds: CredentialsInput) =>
     postJson<CredentialsStatus & { ok: boolean }>('/api/credentials', creds),
+  restoreCredentials: (creds: RestoreCredentialsInput) =>
+    postJson<CredentialsStatus & { ok: boolean }>('/api/credentials/restore', creds),
   clearCredentials: () => del<CredentialsStatus & { ok: boolean }>('/api/credentials'),
   bootstrap: () => get<Bootstrap>('/api/bootstrap'),
   sync: () => postJson<SyncResult>('/api/sync'),
